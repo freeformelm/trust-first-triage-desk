@@ -15,11 +15,18 @@ class Config:
     )
     profile: str = os.getenv("DATABRICKS_PROFILE", "databricks_hackathon")
 
-    # Unity Catalog — TODO confirm with team after workspace login
+    # Source Marketplace tables (read-only)
+    source_catalog: str = "databricks_virtue_foundation_dataset_dais_2026"
+    source_schema: str = "virtue_foundation_dataset"
+    source_facilities: str = "databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.facilities"
+    source_pincode: str = "databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.india_post_pincode_directory"
+    source_nfhs5: str = "databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.nfhs_5_district_health_indicators"
+
+    # Our writable Unity Catalog
     catalog: str = os.getenv("UC_CATALOG", "hackathon")
     schema: str = os.getenv("UC_SCHEMA", "trust_desk")
 
-    # Tables
+    # Our tables
     bronze_facility: str = "bronze_facility"
     silver_facility: str = "silver_facility"
     silver_claim: str = "silver_claim"
@@ -27,6 +34,7 @@ class Config:
     silver_pincode: str = "silver_pincode"
     silver_district_health: str = "silver_district_health"
     gold_facility_trust: str = "gold_facility_trust"
+    claim_extraction_cache: str = "claim_extraction_cache"
 
     # LLM endpoint — Databricks Foundation Model APIs (Free Edition)
     llm_endpoint: str = os.getenv("LLM_ENDPOINT", "databricks-meta-llama-3-3-70b-instruct")
