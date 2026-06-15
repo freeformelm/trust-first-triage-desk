@@ -12,7 +12,7 @@ Free-Edition friendly: all pure Python on the driver since silver_facility is on
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from src.classifier import (
     CAPABILITY_RULES,
@@ -21,6 +21,32 @@ from src.classifier import (
 )
 from src.config import CFG
 from src.evidence import status_label, trust_score
+
+
+def _as_list(v: Any) -> list:
+    """Safe list coercion for pandas/numpy values.
+
+    Spark ARRAY<STRING> columns come back as numpy arrays after .toPandas(),
+    and `value or []` triggers numpy's ambiguous-truthiness error.
+    """
+    if v is None:
+        return []
+    try:
+        import numpy as np  # type: ignore
+        if isinstance(v, np.ndarray):
+            return [x for x in v.tolist() if x is not None]
+    except Exception:
+        pass
+    if isinstance(v, list):
+        return [x for x in v if x is not None]
+    # Scalar NaN check
+    try:
+        import pandas as pd  # type: ignore
+        if pd.isna(v):
+            return []
+    except Exception:
+        pass
+    return [v]
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession
@@ -38,10 +64,10 @@ def build_silver_claim_and_evidence(spark: "SparkSession") -> tuple["DataFrame",
     for _, f in silver.iterrows():
         claims = classify_facility(
             facility_id=f["facility_id"],
-            capabilities=list(f.get("capabilities") or []),
-            procedures=list(f.get("procedures") or []),
-            equipment=list(f.get("equipment") or []),
-            specialties=list(f.get("specialties") or []),
+            capabilities=_as_list(f.get("capabilities")),
+            procedures=_as_list(f.get("procedures")),
+            equipment=_as_list(f.get("equipment")),
+            specialties=_as_list(f.get("specialties")),
         )
         for c in claims:
             claim_rows.append(
@@ -61,12 +87,19 @@ def build_silver_claim_and_evidence(spark: "SparkSession") -> tuple["DataFrame",
 
         # Evidence: scan all text fields for each unique capability claimed by this facility
         unique_caps = {c.claim_value for c in claims}
+        desc = f.get("description")
+        try:
+            import pandas as pd  # type: ignore
+            if pd.isna(desc):
+                desc = None
+        except Exception:
+            pass
         text_by_field = {
-            "description": f.get("description"),
-            "capabilities": list(f.get("capabilities") or []),
-            "procedures": list(f.get("procedures") or []),
-            "equipment": list(f.get("equipment") or []),
-            "specialties": list(f.get("specialties") or []),
+            "description": desc,
+            "capabilities": _as_list(f.get("capabilities")),
+            "procedures": _as_list(f.get("procedures")),
+            "equipment": _as_list(f.get("equipment")),
+            "specialties": _as_list(f.get("specialties")),
         }
         for cap in unique_caps:
             # Use the highest-confidence claim_id for this (facility, capability) pair
