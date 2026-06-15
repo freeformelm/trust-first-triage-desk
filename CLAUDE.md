@@ -21,6 +21,11 @@ DAIS 2026 Databricks Hackathon — Healthcare Facility Intelligence (Virtue Foun
 - **Tracks (pick ONE):** 1. Facility Trust Desk · 2. Medical Desert Planner · 3. Referral Copilot · 4. Data Readiness Desk
 - **LOCKED direction:** Track 1 — **Trust-First Triage Desk** (with stretch into Track 2 district context). Frame: Track 1 done well unlocks Tracks 2/3/4 by side effect.
 - **Product name:** Trust-First Triage Desk
+- **LIVE app:** https://trust-first-triage-desk-108684035875991.aws.databricksapps.com
+- **App name (Databricks Apps):** `trust-first-triage-desk`
+- **Workspace sync path:** `/Workspace/Users/freeformelm@gmail.com/trust-first-triage-desk-app`
+- **SQL warehouse HTTP path:** `/sql/1.0/warehouses/bb6574c313ec0c4f`
+- **Lakebase instance name:** `ep-solitary-shape-d8czihec` (db `databricks_postgres`)
 - **Team:** 2 — Perin Shah (Data Engineer, pshah@dlrgroup.com) + Chialing Wei (Data Scientist). Solo would have been ineligible (Devpost min team size 2).
 - **App framework:** Streamlit (faster than AppKit/TS for 24h sprint)
 - **LLM endpoint:** `databricks-meta-llama-3-3-70b-instruct` (Foundation Model API, no external keys)

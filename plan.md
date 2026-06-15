@@ -1,9 +1,19 @@
 # Plan — Healthcare Facility Intelligence (DAIS 2026)
 
 ## Status
-**LOCKED:** Building **Trust-First Triage Desk** (Track 1 — Facility Trust Desk, with stretch Track 2 district context).
-Scaffolding ✓. Source schema confirmed ✓. Silver-layer transforms written ✓. Lakebase provisioned ✓.
-**Next action:** run `notebooks/02_build_silver.py` in workspace → silver tables → Chialing starts claim classification.
+**LIVE.** Building **Trust-First Triage Desk** (Track 1, with stretch Track 2 district context).
+- ✓ Scaffolding · ✓ Source schema confirmed · ✓ Silver-layer Delta tables built (10,088 facilities, 9,964 valid coords)
+- ✓ Lakebase Postgres provisioned + schema initialized (verifications, annotations, shortlists, saved_searches, claim_embeddings)
+- ✓ Claim classifier (12 capabilities, three-tier: parse → rules → optional LLM fallback)
+- ✓ silver_claim · silver_evidence · gold_facility_trust populated
+- ✓ App deployed: https://trust-first-triage-desk-108684035875991.aws.databricksapps.com
+
+**Remaining (before deadline 2026-06-16 14:30 PDT):**
+- Grant app service principal permissions on SQL warehouse + Lakebase Postgres role
+- Verify Triage tab renders + verify/reject buttons persist to Lakebase
+- Capture screenshot of contradicted ICU example (India Hospital, Kerala / Kamala Nehru, Pune)
+- Record 3-min demo video
+- Submit Devpost
 
 ## ⚠ HARD CONSTRAINTS (Devpost)
 - **Deadline:** 2026-06-16 @ 2:30pm PDT (~24h from now — today is 2026-06-15)
@@ -151,6 +161,10 @@ Scaffolding ✓. Source schema confirmed ✓. Silver-layer transforms written �
 - 2026-06-15: Public repo created — https://github.com/freeformelm/trust-first-triage-desk
 - 2026-06-15: Lakebase `trust_desk` instance provisioned
 - 2026-06-15: EDA confirmed — 10,088 facilities (99% with coords), 706 NFHS districts, 165,627 pincode rows (93% with coords)
+- 2026-06-15: India bounding-box filter — dropped 6 facilities with geocoding errors (e.g. Sanjivani Kerala coords in Atlantic)
+- 2026-06-15: Status thresholds tightened — `verified` requires ≥2 corroborating sources; `contradicted` triggers on referral-out language (broader pattern: before+after match)
+- 2026-06-15: Chialing extended taxonomy from 6 to 12 capabilities (added surgery, cardiology, dialysis, radiology, pediatrics, ophthalmology) + Tier-3 LLM fallback wired
+- 2026-06-15: App live at https://trust-first-triage-desk-108684035875991.aws.databricksapps.com
 
 ## Risks
 - Free Edition compute / LLM quota — batch + cache aggressively

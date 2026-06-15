@@ -82,4 +82,15 @@ Confirmed from schema: facility table has FIVE rich claim surfaces.
 (fill in as we build)
 
 ## App / Lakebase Notes
-- Lakebase database `trust_desk` provisioned ✓ (2026-06-15)
+- Lakebase instance `ep-solitary-shape-d8czihec`, database `databricks_postgres` (NOT `trust_desk` — that's the project name we wanted, but Free Edition gives a single default db).
+- Schema init ✓ via `scripts/init_lakebase.py` (2026-06-15) — 5 tables: verifications, annotations, shortlists, saved_searches, claim_embeddings (+ pgvector).
+- App URL: https://trust-first-triage-desk-108684035875991.aws.databricksapps.com
+- Deploy: `databricks apps deploy trust-first-triage-desk --source-code-path /Workspace/Users/freeformelm@gmail.com/trust-first-triage-desk-app --profile databricks_hackathon`
+- Sync (Git Bash on Windows): `MSYS_NO_PATHCONV=1 databricks sync . /Workspace/Users/freeformelm@gmail.com/trust-first-triage-desk-app --full --exclude ".env" --exclude ".git/*" --exclude "data/*" --profile databricks_hackathon`
+- Lakebase token in deployed app: direct REST `POST /api/2.0/database/instances/<name>/credentials` because `w.database` not available on the SDK version Databricks Apps ships. See `src/db.py::_fetch_lakebase_token`.
+
+## Numpy Pitfall (resolved twice)
+Spark `ARRAY<STRING>` columns become numpy arrays after `.toPandas()`. `value or []` triggers
+`ValueError: truth value of array is ambiguous`. Hit in `trust_compute.py` (fixed via `_as_list`) and in
+`app/app.py` `source_urls` rendering (fixed with explicit None check). Pattern: never use `or` for fallback
+on array columns — always `if v is None: v = []`.

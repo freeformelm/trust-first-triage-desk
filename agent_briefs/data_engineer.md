@@ -19,19 +19,23 @@ Read `../AGENT_BRIEF.md` first for project context.
 - `eval/` (DS owns)
 - Prompt files (DS owns)
 
-## Order of Operations
-1. `databricks auth login --profile databricks_hackathon` (token currently expired)
-2. `databricks current-user me` — confirm identity
-3. Create catalog + schema:
-   - `CREATE CATALOG IF NOT EXISTS hackathon;`
-   - `CREATE SCHEMA IF NOT EXISTS hackathon.trust_desk;`
-4. Install Virtue Foundation Marketplace listing (ID `19326b3d-db63-4627-abc0-cf4e8131a305`) into `hackathon.trust_desk`
-5. Run `src/ingest.py` against marketplace facility table → `bronze_facility` → `silver_facility`
-6. Provision Lakebase database; run `src/lakebase.py::init_schema`
-7. Scaffold Streamlit app locally; wire to silver_facility + Lakebase
-8. `databricks apps deploy` and verify live URL
-9. Once DS has populated `silver_claim`, `silver_evidence`, `gold_facility_trust` → wire app to them
-10. Demo dry-run × 2, then record 3-min video
+## Order of Operations (status as of 2026-06-15)
+1. ✓ `databricks auth login --profile databricks_hackathon`
+2. ✓ Created catalog + schema `hackathon.trust_desk`
+3. ✓ Virtue Foundation Marketplace listing installed → tables at `databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.{facilities, india_post_pincode_directory, nfhs_5_district_health_indicators}`
+4. ✓ `notebooks/02_build_silver.py` → bronze_facility, silver_facility, silver_pincode, silver_district_health
+5. ✓ `notebooks/03_build_claims_and_trust.py` → silver_claim, silver_evidence, gold_facility_trust
+6. ✓ Lakebase provisioned (`ep-solitary-shape-d8czihec`, db `databricks_postgres`)
+7. ✓ Schema init: `python scripts/init_lakebase.py`
+8. ✓ Workspace sync: `MSYS_NO_PATHCONV=1 databricks sync . /Workspace/Users/freeformelm@gmail.com/trust-first-triage-desk-app --full --exclude ".env" --exclude ".git/*" --exclude "data/*" --profile databricks_hackathon`
+9. ✓ App deploy: `databricks apps deploy trust-first-triage-desk --source-code-path /Workspace/Users/freeformelm@gmail.com/trust-first-triage-desk-app --profile databricks_hackathon`
+10. ✓ Live URL: https://trust-first-triage-desk-108684035875991.aws.databricksapps.com
+
+**Remaining:**
+- [ ] Grant app service principal permissions on SQL warehouse + Lakebase Postgres role
+- [ ] Smoke test Triage tab in browser
+- [ ] Demo dry-run × 2
+- [ ] Record 3-min video
 
 ## Key Files You Own
 - `src/config.py` (catalog/schema names)

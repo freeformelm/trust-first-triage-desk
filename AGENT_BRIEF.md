@@ -3,13 +3,14 @@
 **You are an AI coding agent joining a 2-person hackathon team.** Read this file first, then jump to your role-specific brief.
 
 ## TL;DR
-- **What:** A Databricks App that lets a non-technical health planner verify which Indian healthcare facilities can actually do what they claim (ICU, maternity, NICU, oncology, trauma, emergency).
-- **Why:** 10,000 messy facility records from the Foundational Data Refresh (FDR) pipeline. Capability/equipment fields are CLAIMS, not facts. Planners need evidence + uncertainty.
+- **What:** A Databricks App that lets a non-technical health planner verify which Indian healthcare facilities can actually do what they claim (ICU, maternity, NICU, oncology, trauma, emergency + extended: surgery, cardiology, dialysis, radiology, pediatrics, ophthalmology).
+- **Why:** 10,088 messy facility records from the Foundational Data Refresh (FDR) pipeline. Capability/equipment fields are CLAIMS, not facts. Planners need evidence + uncertainty.
 - **Hackathon:** Databricks Apps & Agents for Good 2026 (Devpost: https://dais-for-good-2026.devpost.com/)
-- **Deadline:** 2026-06-16 @ 2:30pm PDT (~24h from kickoff)
+- **Deadline:** 2026-06-16 @ 2:30pm PDT
 - **Deliverable:** Live Databricks App on Free Edition + Git repo + 3-min demo video
 - **Track:** Track 1 — Facility Trust Desk (with stretch into Track 2 district context)
 - **Stack:** Databricks Free Edition · Unity Catalog · Delta · Lakebase Postgres · Databricks Apps (Streamlit) · Foundation Model APIs (`databricks-meta-llama-3-3-70b-instruct`)
+- **LIVE:** https://trust-first-triage-desk-108684035875991.aws.databricksapps.com
 
 ## Non-Negotiable App Behaviors (Devpost rules, will fail submission if missing)
 1. **Cite text** for every important claim/recommendation/score/ranking
