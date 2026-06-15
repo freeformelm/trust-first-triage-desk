@@ -27,9 +27,9 @@ run_all(spark)
 # COMMAND ----------
 
 display(spark.sql(f"""
-    SELECT capability, COUNT(*) AS claims
+    SELECT claim_value AS capability, COUNT(*) AS claims
     FROM {CFG.fq(CFG.silver_claim)}
-    GROUP BY capability
+    GROUP BY claim_value
     ORDER BY claims DESC
 """))
 
