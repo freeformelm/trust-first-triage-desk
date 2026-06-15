@@ -107,7 +107,11 @@ def lakebase_engine():
 # ---------------------------------------------------------------------------
 
 
-CAPABILITIES_FOR_TRIAGE = ("icu", "nicu", "maternity", "emergency", "oncology", "trauma")
+# Devpost priorities first, extended taxonomy after.
+CAPABILITIES_FOR_TRIAGE = (
+    "icu", "nicu", "maternity", "emergency", "oncology", "trauma",
+    "surgery", "cardiology", "dialysis", "radiology", "pediatrics", "ophthalmology",
+)
 
 
 def triage_facilities(

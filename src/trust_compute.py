@@ -70,6 +70,9 @@ def build_silver_claim_and_evidence(spark: "SparkSession") -> tuple["DataFrame",
             specialties=_as_list(f.get("specialties")),
         )
         for c in claims:
+            # Chialing's classifier sets extraction_method = "rules" | "llm"
+            method = getattr(c, "extraction_method", "rules")
+            llm_model = "rules-v1" if method == "rules" else CFG.llm_endpoint
             claim_rows.append(
                 Row(
                     facility_id=c.facility_id,
@@ -80,7 +83,7 @@ def build_silver_claim_and_evidence(spark: "SparkSession") -> tuple["DataFrame",
                     source_field=c.source_field,
                     source_text_span=c.source_text_span,
                     extraction_confidence=c.extraction_confidence,
-                    llm_model="rules-v1",
+                    llm_model=llm_model,
                     extracted_at=now,
                 )
             )
