@@ -24,8 +24,8 @@
 4. **Ambition** — meaningful work beyond minimum
 
 ## Team
-- **Data Engineer (DE) — Pratish.** Ingest, Delta, Lakebase, App deploy. Owns `src/ingest.py`, `src/lakebase.py`, `app/`.
-- **Data Scientist (DS) — teammate.** Claim extraction, evidence linking, trust score, eval. Owns `src/claims.py`, `src/evidence.py`, `eval/`.
+- **Data Engineer (DE) — Perin Shah.** Ingest, Delta, Lakebase, App deploy. Owns `src/ingest.py`, `src/lakebase.py`, `app/`.
+- **Data Scientist (DS) — Chialing Wei.** Claim extraction, evidence linking, trust score, eval. Owns `src/claims.py`, `src/evidence.py`, `eval/`.
 
 ## Where to Read Next
 - Role-specific:

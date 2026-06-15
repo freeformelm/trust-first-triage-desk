@@ -1,10 +1,10 @@
 # Team Split — 24h Sprint
 
-**Team:** 2 — Data Engineer (Pratish, pshah@dlrgroup.com) + Data Scientist (teammate)
+**Team:** 2 — Data Engineer (Perin Shah, pshah@dlrgroup.com) + Data Scientist (Chialing Wei)
 
 ## Roles
 
-### Data Engineer (Pratish)
+### Data Engineer (Perin Shah)
 - Workspace auth, catalog + schema setup
 - Marketplace listing install
 - Bronze → Silver → Gold Delta tables
@@ -14,7 +14,7 @@
 - Wire app ↔ Delta (SQL Connector) and app ↔ Lakebase (psycopg)
 - Demo video recording + Git repo polish
 
-### Data Scientist (teammate)
+### Data Scientist (Chialing Wei)
 - Claim taxonomy (ICU, maternity, emergency, oncology, trauma, NICU, …)
 - Claim extraction prompt (LLM via Foundation Model API)
 - Evidence retrieval (snippet → claim linking + polarity: supports / contradicts / neutral)
