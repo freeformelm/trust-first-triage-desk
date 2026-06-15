@@ -65,20 +65,49 @@ def query_delta(sql: str, params: dict[str, Any] | None = None) -> pd.DataFrame:
 
 
 def _fetch_lakebase_token() -> str:
-    """Get a fresh OAuth token for Lakebase via the Databricks SDK.
+    """Get a fresh OAuth token for Lakebase.
 
     Used when LAKEBASE_PASSWORD env var isn't set (deployed app scenario).
-    Tokens are short-lived (~1h), so we don't cache them at engine level.
+    Uses the SDK's auth chain to get a bearer token, then calls the Lakebase
+    credentials REST endpoint directly — `w.database` is not available in all
+    SDK versions, so we bypass it.
+
+    Tokens are short-lived (~1h); don't cache at engine level.
     """
     from databricks.sdk import WorkspaceClient
+    from databricks.sdk.core import Config
 
-    w = WorkspaceClient()
+    cfg = Config()
+    host = cfg.host.rstrip("/")
+    headers = cfg.authenticate()  # returns {'Authorization': 'Bearer ...'}
+
     instance_name = os.environ.get("LAKEBASE_INSTANCE_NAME", "ep-solitary-shape-d8czihec")
-    cred = w.database.generate_database_credential(
-        request_id="trust-desk-app",
-        instance_names=[instance_name],
+
+    import requests
+
+    resp = requests.post(
+        f"{host}/api/2.0/database/instances/{instance_name}/credentials",
+        headers={**headers, "Content-Type": "application/json"},
+        json={"request_id": "trust-desk-app"},
+        timeout=15,
     )
-    return cred.token
+    if not resp.ok:
+        # Fallback: try newer path used by some SDKs
+        resp2 = requests.post(
+            f"{host}/api/2.0/database/instances:generate-database-credential",
+            headers={**headers, "Content-Type": "application/json"},
+            json={"request_id": "trust-desk-app", "instance_names": [instance_name]},
+            timeout=15,
+        )
+        if not resp2.ok:
+            raise RuntimeError(
+                f"Lakebase credential fetch failed. Tried both endpoints. "
+                f"First: {resp.status_code} {resp.text[:200]}. "
+                f"Second: {resp2.status_code} {resp2.text[:200]}"
+            )
+        return resp2.json().get("token") or resp2.json().get("credentials", [{}])[0].get("token")
+    body = resp.json()
+    return body.get("token") or body.get("credential", {}).get("token") or body["token"]
 
 
 def lakebase_engine():
