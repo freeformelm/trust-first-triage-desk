@@ -52,6 +52,23 @@ EDA flagged state names need standardization (case/spacing variations) across `f
 - Pre-join cleanup: `INITCAP(TRIM(REGEXP_REPLACE(state, '\\s+', ' ')))`
 - For districts: spatial join preferred, but string-match fallback uses same normalization
 
+## Bad Geocoding (real example)
+- `Sanjivani Multi Speciality Hospital` — Kerala address (Alappuzha district, pin 690509) but lat/lng `(59.94, -38.26)` → North Atlantic. Bad geocoding.
+- Solution: India bounding box `lat 6-37, lng 68-98` → `has_valid_coords` flag in silver.
+- Implication: 98.83% raw geocoding ≠ 98.83% usable geocoding. Real usable % computed in `notebooks/02_build_silver.py` sanity checks.
+
+## Source Field Strategy
+Confirmed from schema: facility table has FIVE rich claim surfaces.
+1. **`capability`** (JSON array) — sentence-level statements. Richest. e.g. "NICU Level III", "Centre of Excellence in Fertility Medicine", "24/7 Emergency Department".
+2. **`equipment`** (JSON array) — equipment items. e.g. "CT scanner", "Modular operation theater with laminar air flow".
+3. **`procedure`** (JSON array) — procedures performed. e.g. "Performs joint replacement surgery".
+4. **`specialties`** (JSON array) — coded specialty taxonomy. e.g. "criticalCareMedicine", "neonatologyPerinatalMedicine". Second-signal for cross-verification.
+5. **`description`** (string) — short prose blurb. Background context.
+
+**Implication:** much of the "extraction" is actually parsing + normalization, not free-text NER. The free-text fields here already arrive semi-structured. Big efficiency win for Free Edition LLM budget.
+
+**Citation source:** `source_urls` (JSON array per facility) — every trust-desk score can cite a URL.
+
 ## Claim Extraction Notes
 (fill in as we build)
 

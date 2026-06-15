@@ -1,13 +1,13 @@
 """Bronze + Silver ingest for FDR facility data + supplementals.
 
 Owner: Data Engineer.
-Run as a Databricks notebook or job. Single-node Spark is fine — 10,088 rows.
+Source schema confirmed 2026-06-15 — see `agent_briefs/contracts.md`.
 
 Source (read-only, from Databricks Marketplace listing
 `19326b3d-db63-4627-abc0-cf4e8131a305`):
-  - databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.facilities
-  - ...india_post_pincode_directory
-  - ...nfhs_5_district_health_indicators
+  - databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.facilities  (10,088 rows, 51 cols)
+  - ...india_post_pincode_directory  (165,627 rows, 11 cols)
+  - ...nfhs_5_district_health_indicators  (706 rows, 109 cols, snake_case already)
 
 Target (writable):
   - hackathon.trust_desk.*  (override via UC_CATALOG / UC_SCHEMA env vars)
@@ -23,108 +23,212 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# Discovery helpers — run these FIRST so we know the exact column names
+# Discovery helpers — keep for reproducibility
 # ---------------------------------------------------------------------------
 
 
 def describe_sources(spark: "SparkSession") -> None:
-    """Print the schema of all three source tables.
-
-    Run this once at the start of the sprint to confirm column names.
-    """
     for table in (CFG.source_facilities, CFG.source_pincode, CFG.source_nfhs5):
         print(f"\n=== {table} ===")
         spark.read.table(table).printSchema()
 
 
 def sample_facility(spark: "SparkSession", n: int = 1) -> "DataFrame":
-    """Return n full sample facility rows. Use to confirm field semantics."""
     return spark.read.table(CFG.source_facilities).limit(n)
 
 
 # ---------------------------------------------------------------------------
-# Bronze — copy source as-is into our catalog so downstream is decoupled
+# India bounding box (filters out bad geocoding — confirmed bad row in sample)
+# ---------------------------------------------------------------------------
+
+INDIA_LAT_MIN, INDIA_LAT_MAX = 6.0, 37.0
+INDIA_LNG_MIN, INDIA_LNG_MAX = 68.0, 98.0
+
+
+# ---------------------------------------------------------------------------
+# Bronze — copy source as-is
 # ---------------------------------------------------------------------------
 
 
 def load_facilities_bronze(spark: "SparkSession") -> "DataFrame":
-    """Copy source facilities → bronze_facility (no transforms)."""
     df = spark.read.table(CFG.source_facilities)
     df.write.mode("overwrite").saveAsTable(CFG.fq(CFG.bronze_facility))
     return df
 
 
 # ---------------------------------------------------------------------------
-# Silver — clean + normalize
+# Silver — clean + normalize + parse JSON arrays
 # ---------------------------------------------------------------------------
 
 
 def build_silver_facility(spark: "SparkSession") -> "DataFrame":
-    """Cleaned facility table conforming to `agent_briefs/contracts.md`.
+    """Clean facility table conforming to `agent_briefs/contracts.md`.
 
-    TODO once column names are confirmed:
-      - Map source columns → silver column names
-      - Normalize state + district (INITCAP, trim, collapse whitespace)
-      - has_coords = (latitude IS NOT NULL AND longitude IS NOT NULL)
-      - Cast year_established + capacity to INT, NULLable
+    Transforms:
+      - Rename source → silver columns (snake_case)
+      - Parse JSON-array string fields (specialties, procedure, equipment, capability, source_urls)
+      - Cast numeric strings (capacity, year_established, number_doctors)
+      - Normalize state + city (INITCAP, trim, collapse whitespace)
+      - Validate lat/lng against India bounding box → `has_valid_coords`
+      - Surface trust-signal columns from the FDR (recency, presence flags)
     """
-    bronze = spark.read.table(CFG.fq(CFG.bronze_facility))
+    df = spark.read.table(CFG.fq(CFG.bronze_facility))
+    df.createOrReplaceTempView("_bronze_facility")
 
-    # Placeholder — keep raw columns until we have the real names.
-    # Once `describe_sources` is run we replace this with explicit SELECT + rename.
-    silver = bronze
-    silver.write.mode("overwrite").saveAsTable(CFG.fq(CFG.silver_facility))
+    silver = spark.sql(
+        f"""
+        SELECT
+          unique_id                                                      AS facility_id,
+          TRIM(name)                                                     AS name,
+          LOWER(NULLIF(TRIM(organization_type), ''))                     AS organization_type,
+          LOWER(NULLIF(TRIM(facilityTypeId), ''))                        AS facility_type,
+          LOWER(NULLIF(TRIM(operatorTypeId), ''))                        AS operator_type,
+          description,
+
+          -- Claim fields parsed from JSON arrays
+          FROM_JSON(specialties, 'array<string>')                        AS specialties,
+          FROM_JSON(procedure,   'array<string>')                        AS procedures,
+          FROM_JSON(equipment,   'array<string>')                        AS equipment,
+          FROM_JSON(capability,  'array<string>')                        AS capabilities,
+
+          -- Citation source
+          FROM_JSON(source_urls, 'array<string>')                        AS source_urls,
+
+          -- Numeric-ish fields stored as string
+          TRY_CAST(capacity        AS INT)                               AS capacity,
+          TRY_CAST(yearEstablished AS INT)                               AS year_established,
+          TRY_CAST(numberDoctors   AS INT)                               AS number_doctors,
+
+          -- Address normalization
+          INITCAP(TRIM(REGEXP_REPLACE(address_stateOrRegion, '\\\\s+', ' '))) AS state,
+          INITCAP(TRIM(REGEXP_REPLACE(address_city, '\\\\s+', ' ')))          AS city,
+          NULLIF(TRIM(address_zipOrPostcode), '')                        AS pincode,
+          address_line1, address_line2, address_line3,
+          address_country, address_countryCode AS address_country_code,
+
+          -- Geography with bounding-box validation
+          latitude,
+          longitude,
+          (latitude  BETWEEN {INDIA_LAT_MIN} AND {INDIA_LAT_MAX}
+           AND longitude BETWEEN {INDIA_LNG_MIN} AND {INDIA_LNG_MAX})    AS has_valid_coords,
+
+          -- FDR trust signals (useful priors for Trust Desk)
+          recency_of_page_update,
+          TRY_CAST(distinct_social_media_presence_count AS INT)          AS social_media_presence_count,
+          (LOWER(affiliated_staff_presence) = 'true')                    AS has_affiliated_staff,
+          (LOWER(custom_logo_presence) = 'true')                         AS has_custom_logo,
+          TRY_CAST(number_of_facts_about_the_organization AS INT)        AS facts_count,
+
+          -- Contact (for the planner view)
+          officialPhone                                                  AS official_phone,
+          email,
+          officialWebsite                                                AS official_website,
+
+          -- Provenance hash for joining back to bronze
+          source_content_id,
+          cluster_id
+        FROM _bronze_facility
+        """
+    )
+    silver.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(
+        CFG.fq(CFG.silver_facility)
+    )
     return silver
 
 
 def build_silver_pincode(spark: "SparkSession") -> "DataFrame":
     """Dedupe India Post directory to one row per pincode.
 
-    Rule: prefer Head Office > Post Office > Branch Office.
-    Tiebreaker: first row with non-null coordinates.
-    """
-    src = spark.read.table(CFG.source_pincode)
+    Source: `pincode` is LONG, `latitude`/`longitude` are STRING. Parse to numeric.
 
-    # Once column names are confirmed, expected output cols per contracts.md:
-    #   pincode | officename | officetype | district | statename | latitude | longitude
-    # Placeholder pass-through:
-    src.write.mode("overwrite").saveAsTable(CFG.fq(CFG.silver_pincode))
-    return src
+    Rule: prefer Head Office > Post Office > Branch Office; tiebreaker = first row with non-null coords.
+    """
+    df = spark.read.table(CFG.source_pincode)
+    df.createOrReplaceTempView("_src_pincode")
+
+    deduped = spark.sql(
+        """
+        WITH ranked AS (
+          SELECT
+            CAST(pincode AS STRING)                  AS pincode,
+            officename,
+            officetype,
+            INITCAP(TRIM(district))                  AS district,
+            INITCAP(TRIM(statename))                 AS statename,
+            TRY_CAST(NULLIF(latitude,  'NA') AS DOUBLE) AS latitude,
+            TRY_CAST(NULLIF(longitude, 'NA') AS DOUBLE) AS longitude,
+            ROW_NUMBER() OVER (
+              PARTITION BY pincode
+              ORDER BY
+                CASE upper(officetype)
+                  WHEN 'HO' THEN 1
+                  WHEN 'PO' THEN 2
+                  WHEN 'BO' THEN 3
+                  ELSE 4
+                END,
+                CASE WHEN latitude  IS NOT NULL AND latitude  <> 'NA' THEN 0 ELSE 1 END,
+                officename
+            ) AS rn
+          FROM _src_pincode
+        )
+        SELECT pincode, officename, officetype, district, statename, latitude, longitude
+        FROM ranked
+        WHERE rn = 1
+        """
+    )
+    deduped.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(
+        CFG.fq(CFG.silver_pincode)
+    )
+    return deduped
 
 
 def build_silver_district_health(spark: "SparkSession") -> "DataFrame":
-    """Clean NFHS-5.
+    """NFHS-5 — already snake_case in source. Normalize district + state cols.
 
-    - Rename long column names to snake_case (already snake_case in the
-      Marketplace publish per EDA — confirm).
-    - For numeric indicator columns, parse strings:
-        '*'       → NULL
-        '(29.5)'  → 29.5, plus boolean _low_sample = TRUE
-        '29.5'    → 29.5, _low_sample = FALSE
+    Some indicator cols are typed string (suppressed `*` / parenthesized estimates).
+    For demo simplicity, keep them as-is in silver. Downstream callers should
+    `TRY_CAST(value AS DOUBLE)` and treat parse failures as low-sample / NULL.
     """
-    src = spark.read.table(CFG.source_nfhs5)
-    # Placeholder until we confirm whether Marketplace already cleaned the suppressed values
-    src.write.mode("overwrite").saveAsTable(CFG.fq(CFG.silver_district_health))
-    return src
+    df = spark.read.table(CFG.source_nfhs5)
+    df.createOrReplaceTempView("_src_nfhs5")
+
+    silver = spark.sql(
+        """
+        SELECT
+          INITCAP(TRIM(REGEXP_REPLACE(district_name, '\\\\s+', ' '))) AS district,
+          INITCAP(TRIM(REGEXP_REPLACE(state_ut,      '\\\\s+', ' '))) AS state,
+          *
+        FROM _src_nfhs5
+        """
+    )
+    silver.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(
+        CFG.fq(CFG.silver_district_health)
+    )
+    return silver
 
 
 # ---------------------------------------------------------------------------
-# Geographic join — facility → district polygon, with pincode fallback
+# Geographic join — fallback only (we already have facility lat/lng in 98.83%)
 # ---------------------------------------------------------------------------
 
 
-def spatial_join_facility_district(spark: "SparkSession") -> "DataFrame":
-    """Assign each facility a district via point-in-polygon on lat/lng.
+def attach_district_via_pincode(spark: "SparkSession") -> "DataFrame":
+    """Cheap fallback: facility pincode → silver_pincode.district.
 
-    Strategy:
-      1. Primary: ST_Contains(district_polygon, ST_Point(lng, lat))
-         Polygons from geoBoundaries India ADM2 or DataMeet.
-      2. Fallback (~1% of rows, per EDA): pincode lookup via silver_pincode.
-
-    Returns DataFrame keyed by facility_id with: state_norm, district_norm,
-    district_source (enum: spatial | pincode | unknown).
+    For rows without valid coords. Spatial join via geoBoundaries is the
+    higher-quality path — wire in Phase 2 only if time permits.
     """
-    raise NotImplementedError("Wire geoBoundaries polygons after `describe_sources` confirms lat/lng cols")
+    return spark.sql(
+        f"""
+        SELECT f.facility_id,
+               COALESCE(f.state, p.statename)  AS state_resolved,
+               p.district                       AS district_resolved,
+               'pincode'                        AS district_source
+        FROM   {CFG.fq(CFG.silver_facility)} f
+        LEFT   JOIN {CFG.fq(CFG.silver_pincode)} p
+               ON f.pincode = p.pincode
+        """
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -133,12 +237,10 @@ def spatial_join_facility_district(spark: "SparkSession") -> "DataFrame":
 
 
 def run_all_bronze(spark: "SparkSession") -> None:
-    """One-shot bronze load. Idempotent."""
     load_facilities_bronze(spark)
 
 
 def run_all_silver(spark: "SparkSession") -> None:
-    """One-shot silver build. Run after bronze."""
     build_silver_facility(spark)
     build_silver_pincode(spark)
     build_silver_district_health(spark)
