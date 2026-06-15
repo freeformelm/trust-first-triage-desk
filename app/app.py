@@ -131,8 +131,8 @@ st.markdown(
 
 if "selected_facility" not in st.session_state:
     st.session_state.selected_facility = ""
-if "active_tab" not in st.session_state:
-    st.session_state.active_tab = "Triage"
+if "open_dialog_for" not in st.session_state:
+    st.session_state.open_dialog_for = ""
 
 
 # ---------------------------------------------------------------------------
@@ -158,11 +158,10 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("### ⭐ Demo shortcuts")
-    st.caption("Pre-loaded examples for live demo")
+    st.caption("Click to open facility detail in a modal")
     for label, fid in DEMO_FACILITIES:
         if st.button(label, key=f"demo-{fid}", use_container_width=True):
-            st.session_state.selected_facility = fid
-            st.session_state.active_tab = "Facility Detail"
+            st.session_state.open_dialog_for = fid
             st.rerun()
 
     st.markdown("---")
@@ -208,8 +207,129 @@ def safe_list(val) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Facility detail — shared between modal (dialog) and tab
+# ---------------------------------------------------------------------------
+
+
+def render_facility_detail(fid: str, planner_id: str) -> None:
+    try:
+        fac = db.facility_detail(fid)
+    except Exception as e:
+        st.error(f"Lookup failed: {e}")
+        return
+
+    if fac.empty:
+        st.warning("Facility not found.")
+        return
+
+    f = fac.iloc[0]
+    st.markdown(f"## {f['name']}")
+    meta_cols = st.columns(4)
+    meta_cols[0].metric("City", f.get("city") or "—")
+    meta_cols[1].metric("State", f.get("state") or "—")
+    meta_cols[2].metric("Pincode", f.get("pincode") or "—")
+    meta_cols[3].metric("Year est.", str(f.get("year_established") or "—"))
+
+    with st.expander("📝 Description (source text)", expanded=True):
+        st.write(f.get("description") or "_(no description in source)_")
+
+    st.markdown("### Capability claims & evidence")
+    claims = db.facility_claims_with_evidence(fid)
+    if claims.empty:
+        st.info("No claims classified for this facility.")
+    else:
+        all_evidence = db.facility_evidence(fid)
+        for capability_val, group in claims.groupby("claim_value"):
+            status_v = group.iloc[0]["status"] or "unclear"
+            trust = float(group.iloc[0]["trust_score"] or 0)
+            sup = int(group.iloc[0]["supporting_evidence_count"] or 0)
+            con = int(group.iloc[0]["contradicting_evidence_count"] or 0)
+            expand = status_v == "contradicted"
+            with st.expander(
+                f"**{capability_val.upper()}**  ·  trust {trust:.2f}  ·  {sup} supporting · {con} contradicting",
+                expanded=expand,
+            ):
+                st.markdown(
+                    f"{status_chip(status_v)}{trust_bar_html(trust)}",
+                    unsafe_allow_html=True,
+                )
+                st.markdown("**Claimed in:**")
+                for _, c in group.iterrows():
+                    st.markdown(f"- `{c['source_field']}` &nbsp;→&nbsp; *“{c['claim_raw'][:160]}”*")
+
+                ev_for_cap = all_evidence[all_evidence["claim_id"].isin(group["claim_id"])]
+                if not ev_for_cap.empty:
+                    st.markdown("**Evidence**")
+                    for _, e in ev_for_cap.iterrows():
+                        st.markdown(
+                            evidence_card_html(e["snippet"], e["source_field"], e["polarity"]),
+                            unsafe_allow_html=True,
+                        )
+
+                b1, b2, b3 = st.columns(3)
+                cid = group.iloc[0]["claim_id"]
+                with b1:
+                    if st.button("✅ Verify", key=f"v-{fid}-{cid}", use_container_width=True):
+                        try:
+                            db.record_verification(fid, cid, planner_id, "verified")
+                            st.success(f"Saved — {capability_val.upper()} verified.")
+                        except Exception as e:
+                            st.error(f"Lakebase write failed: {e}")
+                with b2:
+                    if st.button("❌ Reject", key=f"r-{fid}-{cid}", use_container_width=True):
+                        try:
+                            db.record_verification(fid, cid, planner_id, "rejected")
+                            st.success(f"Saved — {capability_val.upper()} rejected.")
+                        except Exception as e:
+                            st.error(f"Lakebase write failed: {e}")
+                with b3:
+                    if st.button("⚠️ Needs info", key=f"n-{fid}-{cid}", use_container_width=True):
+                        try:
+                            db.record_verification(fid, cid, planner_id, "needs_info")
+                            st.success(f"Saved — {capability_val.upper()} needs info.")
+                        except Exception as e:
+                            st.error(f"Lakebase write failed: {e}")
+
+    st.markdown("### 📝 Planner note")
+    note = st.text_area(
+        "Add context",
+        placeholder="e.g. Confirmed by phone — refers all ICU cases to NMC Hospital.",
+        label_visibility="collapsed",
+        key=f"note-{fid}",
+    )
+    if st.button("Save note", key=f"savenote-{fid}") and note.strip():
+        try:
+            db.add_annotation(fid, planner_id, note.strip())
+            st.success("Note saved.")
+        except Exception as e:
+            st.error(f"Lakebase write failed: {e}")
+
+    urls = safe_list(f.get("source_urls"))
+    if urls:
+        st.markdown("### 🔗 Sources")
+        seen: set[str] = set()
+        for u in urls:
+            if u and u not in seen:
+                seen.add(u)
+                st.markdown(f"- {u}")
+                if len(seen) >= 10:
+                    break
+
+
+@st.dialog("Facility Detail", width="large")
+def _facility_dialog(fid: str, planner_id: str) -> None:
+    render_facility_detail(fid, planner_id)
+
+
+# ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
+
+# Open dialog if a facility was selected (Inspect button or demo shortcut)
+if st.session_state.open_dialog_for:
+    fid_dialog = st.session_state.open_dialog_for
+    st.session_state.open_dialog_for = ""  # consume so it doesn't reopen on next rerun
+    _facility_dialog(fid_dialog, planner_id)
 
 tabs = st.tabs(["🔍 Triage", "🏥 Facility Detail", "🗺️ District Context", "📝 My Work"])
 tab_triage, tab_facility, tab_district, tab_work = tabs
@@ -281,8 +401,7 @@ with tab_triage:
                     )
                 with c_right:
                     if st.button("Inspect →", key=f"inspect-{r['facility_id']}"):
-                        st.session_state.selected_facility = r["facility_id"]
-                        st.session_state.active_tab = "Facility Detail"
+                        st.session_state.open_dialog_for = r["facility_id"]
                         st.rerun()
 
 
@@ -291,17 +410,18 @@ with tab_triage:
 # ---------------------------------------------------------------------------
 
 with tab_facility:
-    fid = st.text_input(
+    st.caption("Or paste a facility ID directly here:")
+    fid_input = st.text_input(
         "Facility ID",
         value=st.session_state.selected_facility,
         key="facility_id_input",
-        help="Use the Inspect button on the Triage tab to auto-fill.",
+        label_visibility="collapsed",
     )
-    if not fid:
-        st.info("Click **Inspect →** on any facility from the Triage tab to load full evidence here.")
+    if not fid_input:
+        st.info("Use **Inspect →** in the Triage tab (or sidebar Demo shortcuts) to open a facility.")
     else:
         try:
-            fac = db.facility_detail(fid)
+            fac = db.facility_detail(fid_input)
         except Exception as e:
             st.error(f"Lookup failed: {e}")
             fac = pd.DataFrame()
@@ -309,108 +429,7 @@ with tab_facility:
         if fac.empty:
             st.warning("Facility not found.")
         else:
-            f = fac.iloc[0]
-            st.markdown(f"## {f['name']}")
-            meta_cols = st.columns(4)
-            meta_cols[0].metric("City", f.get("city") or "—")
-            meta_cols[1].metric("State", f.get("state") or "—")
-            meta_cols[2].metric("Pincode", f.get("pincode") or "—")
-            meta_cols[3].metric("Year est.", str(f.get("year_established") or "—"))
-
-            with st.expander("📝 Description (source text)", expanded=True):
-                st.write(f.get("description") or "_(no description in source)_")
-
-            # Claims grouped by capability
-            st.markdown("### Capability claims & evidence")
-            claims = db.facility_claims_with_evidence(fid)
-            if claims.empty:
-                st.info("No claims classified for this facility yet.")
-            else:
-                all_evidence = db.facility_evidence(fid)
-
-                for capability_val, group in claims.groupby("claim_value"):
-                    status_v = group.iloc[0]["status"] or "unclear"
-                    trust = float(group.iloc[0]["trust_score"] or 0)
-                    sup = int(group.iloc[0]["supporting_evidence_count"] or 0)
-                    con = int(group.iloc[0]["contradicting_evidence_count"] or 0)
-
-                    expand = (status_v == "contradicted")
-                    with st.expander(
-                        f"**{capability_val.upper()}**  ·  trust {trust:.2f}  ·  {sup} supporting · {con} contradicting",
-                        expanded=expand,
-                    ):
-                        st.markdown(
-                            f"{status_chip(status_v)}{trust_bar_html(trust)}",
-                            unsafe_allow_html=True,
-                        )
-
-                        # Sources of the claim
-                        st.markdown("**Claimed in:**")
-                        for _, c in group.iterrows():
-                            st.markdown(
-                                f"- `{c['source_field']}` &nbsp;→&nbsp; *“{c['claim_raw'][:160]}”*"
-                            )
-
-                        # Evidence
-                        ev_for_cap = all_evidence[all_evidence["claim_id"].isin(group["claim_id"])]
-                        if not ev_for_cap.empty:
-                            st.markdown("**Evidence**")
-                            for _, e in ev_for_cap.iterrows():
-                                st.markdown(
-                                    evidence_card_html(e["snippet"], e["source_field"], e["polarity"]),
-                                    unsafe_allow_html=True,
-                                )
-
-                        # Verify / reject buttons → Lakebase
-                        b1, b2, b3 = st.columns(3)
-                        cid = group.iloc[0]["claim_id"]
-                        with b1:
-                            if st.button(f"✅ Verify", key=f"v-{cid}", use_container_width=True):
-                                try:
-                                    db.record_verification(fid, cid, planner_id, "verified")
-                                    st.success(f"Saved — {capability_val.upper()} verified.")
-                                except Exception as e:
-                                    st.error(f"Lakebase write failed: {e}")
-                        with b2:
-                            if st.button(f"❌ Reject", key=f"r-{cid}", use_container_width=True):
-                                try:
-                                    db.record_verification(fid, cid, planner_id, "rejected")
-                                    st.success(f"Saved — {capability_val.upper()} rejected.")
-                                except Exception as e:
-                                    st.error(f"Lakebase write failed: {e}")
-                        with b3:
-                            if st.button(f"⚠️ Needs info", key=f"n-{cid}", use_container_width=True):
-                                try:
-                                    db.record_verification(fid, cid, planner_id, "needs_info")
-                                    st.success(f"Saved — {capability_val.upper()} marked needs info.")
-                                except Exception as e:
-                                    st.error(f"Lakebase write failed: {e}")
-
-            # Planner note
-            st.markdown("### 📝 Planner note")
-            note = st.text_area(
-                "Add context (saved to Lakebase, attached to this facility)",
-                placeholder="e.g. Confirmed by phone — refers all ICU cases to NMC Hospital.",
-                label_visibility="collapsed",
-            )
-            if st.button("Save note") and note.strip():
-                try:
-                    db.add_annotation(fid, planner_id, note.strip())
-                    st.success("Note saved.")
-                except Exception as e:
-                    st.error(f"Lakebase write failed: {e}")
-
-            # Citations
-            urls = safe_list(f.get("source_urls"))
-            if urls:
-                st.markdown("### 🔗 Sources")
-                seen: set[str] = set()
-                for u in urls:
-                    if u and u not in seen:
-                        seen.add(u)
-                        st.markdown(f"- {u}")
-                        if len(seen) >= 10:
-                            break
+            render_facility_detail(fid_input, planner_id)
 
 
 # ---------------------------------------------------------------------------
