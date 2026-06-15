@@ -71,8 +71,11 @@ Confirmed from schema: facility table has FIVE rich claim surfaces.
 
 ## Claim Extraction Notes
 - **State column unreliable** — confirmed real example: row `fac0cc70-...` (Kerala Sanjivani) has `address_stateOrRegion = "Alappuzha"` (a district, not a state). Source-data quality issue. Use pincode lookup for canonical state/district when possible.
-- **Baseline classifier** (`src/classifier.py`) is rules-only with regex + specialty-code mapping. Six target capabilities: icu, nicu, maternity, emergency, oncology, trauma.
-- **Confidence tiers (rules baseline):** 0.85 capabilities text · 0.80 specialty code · 0.75 procedures/equipment text. LLM fallback (Chialing) will refine.
+- **Classifier consolidated into `src/classifier.py`** (DS, 2026-06-15) — one module, no parallel `claims.py`. Kept the existing interface (`classify_facility`, `find_evidence_for_capability`, `CAPABILITY_RULES`) so `trust_compute` + app are untouched.
+- **Taxonomy now 12 capabilities** (added surgery, cardiology, dialysis, radiology, pediatrics, ophthalmology to the original 6). gold_facility_trust will now have rows for these too — **DE: app should iterate capabilities dynamically, not hardcode 6.**
+- **Bug fixes:** (1) free-text "neonatal ICU" no longer emits a spurious plain-`icu` claim (suppress icu when nicu fires on same element); (2) replaced `source_field[:-1]` ("equipment"→"equipmen") with a clean claim_type dict map.
+- **Confidence tiers:** 0.85 capabilities text · 0.80 specialty code · 0.75 procedures/equipment text · ≤0.75 LLM fallback.
+- **LLM Tier-2 is OPTIONAL & wired-ready but OFF by default.** `classify_facility(..., llm_client=None)` → pure rules (current pipeline behaviour unchanged). Pass an OpenAI-compatible Databricks FMAPI client to classify the free-text elements rules can't place; "other" results are dropped. To activate in the batch run, `trust_compute` must: build the client, pass it through, add a Delta cache (re-runs free), AND set `llm_model = CFG.llm_endpoint when c.extraction_method=='llm' else 'rules-v1'`.
 - **6 / 10,088 facilities** dropped by India bounding-box filter — 99.94% have usable coordinates after cleaning.
 
 ## Evidence Linking Notes
