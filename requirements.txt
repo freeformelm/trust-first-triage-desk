@@ -1,0 +1,26 @@
+# Core
+streamlit>=1.36
+pandas>=2.2
+pyarrow>=15.0
+
+# Databricks
+databricks-sdk>=0.30
+databricks-sql-connector>=3.3
+mlflow>=2.14
+
+# LLM / embeddings (via Databricks Foundation Model APIs — no extra keys)
+openai>=1.40
+
+# Lakebase (Postgres)
+psycopg[binary]>=3.2
+sqlalchemy>=2.0
+pgvector>=0.3
+
+# Geospatial (district polygon join)
+geopandas>=0.14
+shapely>=2.0
+
+# Utility
+python-dotenv>=1.0
+pydantic>=2.7
+tenacity>=8.4

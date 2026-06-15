@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Env / secrets
+.env
+.env.local
+*.pem
+*.key
+
+# Databricks
+.databricks/
+.databrickscfg
+
+# Data (gitignored — pull from Marketplace + UC)
+data/
+*.csv
+*.parquet
+*.delta
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# MLflow
+mlruns/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Notebook checkpoints
+.ipynb_checkpoints/
