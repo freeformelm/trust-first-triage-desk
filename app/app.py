@@ -2,15 +2,6 @@
 
 Run locally:  streamlit run app/app.py
 Deploy:       databricks apps deploy
-
-Required env vars (set via app.yaml or local .env):
-  - DATABRICKS_HOST
-  - DATABRICKS_HTTP_PATH        (Serverless SQL warehouse HTTP path)
-  - DATABRICKS_TOKEN            (auto-provided on Databricks Apps)
-  - LAKEBASE_HOST
-  - LAKEBASE_DB
-  - LAKEBASE_USER
-  - LAKEBASE_PASSWORD
 """
 from __future__ import annotations
 
@@ -23,39 +14,210 @@ import streamlit as st
 from src import db
 from src.db import CAPABILITIES_FOR_TRIAGE
 
+# ---------------------------------------------------------------------------
+# Page config + brand styling
+# ---------------------------------------------------------------------------
+
 st.set_page_config(
     page_title="Trust-First Triage Desk",
     page_icon="🩺",
     layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+DATABRICKS_RED = "#FF3621"
+DATABRICKS_INK = "#0B2026"
+DATABRICKS_CREAM = "#F9F7F4"
+DATABRICKS_STONE = "#EEEDE9"
+
+SUPPORTS_GREEN = "#1F8F4E"
+CONTRADICTS_RED = "#C0392B"
+UNCLEAR_AMBER = "#C07A1B"
+
+st.markdown(
+    f"""
+    <style>
+        /* Hide Streamlit chrome */
+        #MainMenu, footer {{ visibility: hidden; }}
+        header {{ background: transparent !important; }}
+
+        /* Brand background */
+        .stApp {{ background-color: {DATABRICKS_CREAM}; }}
+        section[data-testid="stSidebar"] {{ background-color: {DATABRICKS_STONE}; }}
+
+        /* Hero band */
+        .hero {{
+            background: linear-gradient(95deg, {DATABRICKS_INK} 0%, #133239 100%);
+            color: white;
+            padding: 1.6rem 1.8rem;
+            border-radius: 10px;
+            margin-bottom: 1.2rem;
+        }}
+        .hero h1 {{ font-size: 1.85rem; margin: 0 0 0.3rem 0; font-weight: 700; }}
+        .hero p {{ margin: 0; color: #d9e4e7; font-size: 1rem; }}
+        .hero .accent {{ color: {DATABRICKS_RED}; font-weight: 700; }}
+
+        /* Section headers */
+        h2, h3 {{ color: {DATABRICKS_INK}; }}
+
+        /* Status badge chips */
+        .chip {{
+            display: inline-block;
+            padding: 0.18rem 0.7rem;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+        }}
+        .chip-verified    {{ background: #DFF3E5; color: {SUPPORTS_GREEN}; border: 1px solid {SUPPORTS_GREEN}; }}
+        .chip-unclear     {{ background: #FBEFD9; color: {UNCLEAR_AMBER};  border: 1px solid {UNCLEAR_AMBER}; }}
+        .chip-contradicted{{ background: #F7DDD8; color: {CONTRADICTS_RED}; border: 1px solid {CONTRADICTS_RED}; }}
+
+        /* Evidence cards */
+        .evcard {{
+            padding: 0.6rem 0.85rem;
+            border-radius: 8px;
+            margin-bottom: 0.45rem;
+            font-size: 0.9rem;
+            border-left: 4px solid #ccc;
+            background: white;
+        }}
+        .ev-supports   {{ border-left-color: {SUPPORTS_GREEN};   background: #F2FAF4; }}
+        .ev-contradicts{{ border-left-color: {CONTRADICTS_RED};  background: #FDF2F0; }}
+        .ev-neutral    {{ border-left-color: #999;               background: #FAFAFA; }}
+        .evcard .src   {{ font-size: 0.7rem; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.2rem; }}
+
+        /* Trust bar */
+        .trust-wrap {{ background: {DATABRICKS_STONE}; height: 10px; border-radius: 999px; overflow: hidden; margin: 0.3rem 0 0.4rem 0; }}
+        .trust-bar  {{ height: 100%; background: linear-gradient(90deg, {DATABRICKS_RED}, {SUPPORTS_GREEN}); }}
+
+        /* Facility row cards */
+        .facrow {{
+            background: white;
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            margin-bottom: 0.5rem;
+            border: 1px solid {DATABRICKS_STONE};
+        }}
+        .facrow:hover {{ border-color: {DATABRICKS_RED}; }}
+
+        /* Buttons */
+        .stButton > button {{ border-radius: 6px; font-weight: 500; }}
+        div[data-testid="stPrimaryButton"] > button {{ background: {DATABRICKS_RED} !important; color: white !important; border: none; }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Hero
+st.markdown(
+    """
+    <div class="hero">
+        <h1>Trust-First Triage Desk <span class="accent">·</span> Healthcare Facility Intelligence</h1>
+        <p>Verify what 10,088 Indian healthcare facilities actually claim. Every score cites the source text. Uncertainty is shown honestly.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
 # ---------------------------------------------------------------------------
-# Sidebar — planner identity + global filters
+# Session state for cross-tab facility selection
 # ---------------------------------------------------------------------------
+
+if "selected_facility" not in st.session_state:
+    st.session_state.selected_facility = ""
+if "active_tab" not in st.session_state:
+    st.session_state.active_tab = "Triage"
+
+
+# ---------------------------------------------------------------------------
+# Sidebar — planner identity, filters, demo shortcuts
+# ---------------------------------------------------------------------------
+
+DEMO_FACILITIES = [
+    ("India Hospital — contradicted ICU", "5c39dc80-0f8e-4fa1-9f53-fc27fbd2634e"),
+    ("Kamala Nehru Hospital — contradicted ICU", "60adac06-d48e-4010-a6d6-03ae8b23b46e"),
+    ("Wadia Children Hospital — verified NICU", "f73e1e8e-f5b0-4d55-9e93-9854283da691"),
+    ("Cloudnine Gurgaon — verified NICU", "c710d0a6-a688-4613-a8a5-3bc155f9ceb8"),
+]
 
 with st.sidebar:
-    st.markdown("### Trust-First Triage Desk")
-    st.caption("Verify what 10,000 Indian healthcare facilities actually claim.")
-    planner_id = st.text_input("Planner handle", value="planner")
-    st.divider()
+    st.markdown("### 👤 Planner")
+    planner_id = st.text_input("Your handle", value="planner", label_visibility="collapsed")
+
+    st.markdown("---")
+    st.markdown("### 🔍 Filters")
     capability = st.selectbox("Capability", CAPABILITIES_FOR_TRIAGE, index=0)
-    state = st.text_input("State (optional, exact match)", value="")
-    min_trust = st.slider("Minimum trust score", 0.0, 1.0, 0.0, 0.05)
-    st.caption("Every score is backed by a quoted source snippet. We never present weak evidence as fact.")
+    state = st.text_input("State or city (prefix OK)", value="", placeholder="e.g. Kerala, Mumbai")
+    min_trust = st.slider("Min trust score", 0.0, 1.0, 0.0, 0.05)
 
+    st.markdown("---")
+    st.markdown("### ⭐ Demo shortcuts")
+    st.caption("Pre-loaded examples for live demo")
+    for label, fid in DEMO_FACILITIES:
+        if st.button(label, key=f"demo-{fid}", use_container_width=True):
+            st.session_state.selected_facility = fid
+            st.session_state.active_tab = "Facility Detail"
+            st.rerun()
 
-tab_triage, tab_facility, tab_district, tab_work = st.tabs(
-    ["🔍 Triage", "🏥 Facility Detail", "🗺️ District Context", "📝 My Work"]
-)
+    st.markdown("---")
+    st.caption(
+        "**Why this matters.** The dataset's `capability`, `equipment`, "
+        "and `procedure` fields are CLAIMS, not verified facts. "
+        "Trust Desk grounds every score in the facility's own text."
+    )
 
 
 # ---------------------------------------------------------------------------
-# Tab 1 — Triage list
+# Helpers for UI
 # ---------------------------------------------------------------------------
 
+
+def status_chip(status: str) -> str:
+    label = {"verified": "Verified", "unclear": "Unclear", "contradicted": "Contradicted"}.get(status, status)
+    return f'<span class="chip chip-{status}">{label}</span>'
+
+
+def trust_bar_html(score: float) -> str:
+    pct = max(0.0, min(1.0, float(score))) * 100
+    return f'<div class="trust-wrap"><div class="trust-bar" style="width:{pct:.0f}%"></div></div>'
+
+
+def evidence_card_html(snippet: str, source_field: str, polarity: str) -> str:
+    icon = {"supports": "🟢", "contradicts": "🔴", "neutral": "⚪"}.get(polarity, "·")
+    return (
+        f'<div class="evcard ev-{polarity}">'
+        f'<div class="src">{icon} {source_field}</div>'
+        f'<div>{snippet}</div>'
+        f'</div>'
+    )
+
+
+def safe_list(val) -> list:
+    if val is None:
+        return []
+    try:
+        return list(val)
+    except TypeError:
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Tabs
+# ---------------------------------------------------------------------------
+
+tabs = st.tabs(["🔍 Triage", "🏥 Facility Detail", "🗺️ District Context", "📝 My Work"])
+tab_triage, tab_facility, tab_district, tab_work = tabs
+
+
+# ---------------------------------------------------------------------------
+# Tab 1 — Triage
+# ---------------------------------------------------------------------------
 
 with tab_triage:
-    st.subheader(f"Facilities claiming `{capability}`" + (f" in {state}" if state else ""))
+    where_clause = f"in **{state}**" if state else "across India"
+    st.markdown(f"#### Facilities claiming **{capability.upper()}** {where_clause}")
+
     try:
         df = db.triage_facilities(
             capability=capability,
@@ -64,59 +226,74 @@ with tab_triage:
             limit=200,
         )
     except Exception as e:
-        st.error(f"Query failed: {e}")
+        st.error(f"Delta query failed: {e}")
         df = pd.DataFrame()
 
     if df.empty:
-        st.info("No facilities match. Loosen filters.")
+        st.info("No facilities match. Loosen filters or try a different capability.")
     else:
-        verified = (df["status"] == "verified").sum()
-        unclear = (df["status"] == "unclear").sum()
-        contradicted = (df["status"] == "contradicted").sum()
+        verified = int((df["status"] == "verified").sum())
+        unclear = int((df["status"] == "unclear").sum())
+        contradicted = int((df["status"] == "contradicted").sum())
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total claiming", len(df))
+        c1.metric("Claiming the capability", len(df))
         c2.metric("✅ Verified", verified)
         c3.metric("⚠️ Unclear", unclear)
         c4.metric("❌ Contradicted", contradicted)
 
-        # Map for facilities with coords
-        with_coords = df.dropna(subset=["latitude", "longitude"])
-        if not with_coords.empty:
-            with st.expander("📍 Map", expanded=False):
+        with st.expander("📍 Map of these facilities", expanded=False):
+            with_coords = df.dropna(subset=["latitude", "longitude"])
+            if not with_coords.empty:
                 st.map(with_coords.rename(columns={"latitude": "lat", "longitude": "lon"}))
+            else:
+                st.caption("No geocoded coordinates for these results.")
 
-        # Table view
-        display_df = df[
-            ["facility_id", "name", "city", "state", "status", "trust_score",
-             "supporting_evidence_count", "contradicting_evidence_count", "claim_count"]
-        ].copy()
-        display_df["status"] = display_df["status"].map(
-            {"verified": "✅ Verified", "unclear": "⚠️ Unclear", "contradicted": "❌ Contradicted"}
-        )
-        st.dataframe(
-            display_df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "trust_score": st.column_config.ProgressColumn(
-                    "Trust", min_value=0.0, max_value=1.0, format="%.2f"
-                ),
-            },
+        st.markdown("##### Results")
+        st.caption(
+            "Sorted by status (verified · unclear · contradicted) then trust score. "
+            "Click 'Inspect' to load full evidence."
         )
 
-        st.caption("Click into a facility on the Facility Detail tab using its ID.")
+        # Render top 50 as polished rows
+        for _, r in df.head(50).iterrows():
+            with st.container():
+                c_left, c_mid, c_right = st.columns([5, 2, 1])
+                with c_left:
+                    st.markdown(
+                        f"**{r['name']}** &nbsp; {status_chip(r['status'])}<br>"
+                        f"<span style='color:#666;font-size:0.85rem;'>📍 {r['city'] or '—'}, {r['state'] or '—'} &nbsp;·&nbsp; "
+                        f"{int(r['supporting_evidence_count'] or 0)} supporting · "
+                        f"{int(r['contradicting_evidence_count'] or 0)} contradicting</span>"
+                        f"{trust_bar_html(r['trust_score'] or 0)}",
+                        unsafe_allow_html=True,
+                    )
+                with c_mid:
+                    st.markdown(
+                        f"<div style='text-align:right;font-size:0.85rem;color:#666;'>Trust score</div>"
+                        f"<div style='text-align:right;font-size:1.3rem;font-weight:700;color:{DATABRICKS_INK};'>"
+                        f"{(r['trust_score'] or 0):.2f}</div>",
+                        unsafe_allow_html=True,
+                    )
+                with c_right:
+                    if st.button("Inspect →", key=f"inspect-{r['facility_id']}"):
+                        st.session_state.selected_facility = r["facility_id"]
+                        st.session_state.active_tab = "Facility Detail"
+                        st.rerun()
 
 
 # ---------------------------------------------------------------------------
-# Tab 2 — Facility detail with evidence + verify/reject
+# Tab 2 — Facility Detail
 # ---------------------------------------------------------------------------
-
 
 with tab_facility:
-    st.subheader("Facility Detail")
-    fid = st.text_input("Facility ID", help="Copy from the Triage table")
+    fid = st.text_input(
+        "Facility ID",
+        value=st.session_state.selected_facility,
+        key="facility_id_input",
+        help="Use the Inspect button on the Triage tab to auto-fill.",
+    )
     if not fid:
-        st.info("Paste a facility ID from the Triage tab.")
+        st.info("Click **Inspect →** on any facility from the Triage tab to load full evidence here.")
     else:
         try:
             fac = db.facility_detail(fid)
@@ -135,105 +312,111 @@ with tab_facility:
             meta_cols[2].metric("Pincode", f.get("pincode") or "—")
             meta_cols[3].metric("Year est.", str(f.get("year_established") or "—"))
 
-            with st.expander("Description", expanded=True):
+            with st.expander("📝 Description (source text)", expanded=True):
                 st.write(f.get("description") or "_(no description in source)_")
 
-            # Claims table
-            st.markdown("### Claims")
+            # Claims grouped by capability
+            st.markdown("### Capability claims & evidence")
             claims = db.facility_claims_with_evidence(fid)
             if claims.empty:
                 st.info("No claims classified for this facility yet.")
             else:
-                # Group by capability for the verify UI
+                all_evidence = db.facility_evidence(fid)
+
                 for capability_val, group in claims.groupby("claim_value"):
-                    status = group.iloc[0]["status"] or "unclear"
-                    trust = group.iloc[0]["trust_score"] or 0.0
+                    status_v = group.iloc[0]["status"] or "unclear"
+                    trust = float(group.iloc[0]["trust_score"] or 0)
                     sup = int(group.iloc[0]["supporting_evidence_count"] or 0)
                     con = int(group.iloc[0]["contradicting_evidence_count"] or 0)
-                    badge = {"verified": "✅", "unclear": "⚠️", "contradicted": "❌"}.get(status, "·")
 
+                    expand = (status_v == "contradicted")
                     with st.expander(
-                        f"{badge} **{capability_val.upper()}** · trust {trust:.2f} · "
-                        f"{sup} supporting · {con} contradicting",
-                        expanded=(status == "contradicted"),
+                        f"**{capability_val.upper()}**  ·  trust {trust:.2f}  ·  {sup} supporting · {con} contradicting",
+                        expanded=expand,
                     ):
-                        st.dataframe(
-                            group[["claim_raw", "source_field", "extraction_confidence"]],
-                            hide_index=True,
-                            use_container_width=True,
+                        st.markdown(
+                            f"{status_chip(status_v)}{trust_bar_html(trust)}",
+                            unsafe_allow_html=True,
                         )
 
-                        # Evidence snippets for this capability
-                        all_evidence = db.facility_evidence(fid)
-                        ev_for_cap = all_evidence[
-                            all_evidence["claim_id"].isin(group["claim_id"])
-                        ]
+                        # Sources of the claim
+                        st.markdown("**Claimed in:**")
+                        for _, c in group.iterrows():
+                            st.markdown(
+                                f"- `{c['source_field']}` &nbsp;→&nbsp; *“{c['claim_raw'][:160]}”*"
+                            )
+
+                        # Evidence
+                        ev_for_cap = all_evidence[all_evidence["claim_id"].isin(group["claim_id"])]
                         if not ev_for_cap.empty:
                             st.markdown("**Evidence**")
                             for _, e in ev_for_cap.iterrows():
-                                pol_icon = {"supports": "🟢", "contradicts": "🔴", "neutral": "⚪"}.get(
-                                    e["polarity"], "·"
+                                st.markdown(
+                                    evidence_card_html(e["snippet"], e["source_field"], e["polarity"]),
+                                    unsafe_allow_html=True,
                                 )
-                                st.markdown(f"{pol_icon} `{e['source_field']}` — {e['snippet']}")
 
                         # Verify / reject buttons → Lakebase
                         b1, b2, b3 = st.columns(3)
                         cid = group.iloc[0]["claim_id"]
                         with b1:
-                            if st.button(f"✅ Verify {capability_val}", key=f"v-{cid}"):
+                            if st.button(f"✅ Verify", key=f"v-{cid}", use_container_width=True):
                                 try:
                                     db.record_verification(fid, cid, planner_id, "verified")
-                                    st.success("Saved.")
+                                    st.success(f"Saved — {capability_val.upper()} verified.")
                                 except Exception as e:
                                     st.error(f"Lakebase write failed: {e}")
                         with b2:
-                            if st.button(f"❌ Reject {capability_val}", key=f"r-{cid}"):
+                            if st.button(f"❌ Reject", key=f"r-{cid}", use_container_width=True):
                                 try:
                                     db.record_verification(fid, cid, planner_id, "rejected")
-                                    st.success("Saved.")
+                                    st.success(f"Saved — {capability_val.upper()} rejected.")
                                 except Exception as e:
                                     st.error(f"Lakebase write failed: {e}")
                         with b3:
-                            if st.button(f"⚠️ Needs info {capability_val}", key=f"n-{cid}"):
+                            if st.button(f"⚠️ Needs info", key=f"n-{cid}", use_container_width=True):
                                 try:
                                     db.record_verification(fid, cid, planner_id, "needs_info")
-                                    st.success("Saved.")
+                                    st.success(f"Saved — {capability_val.upper()} marked needs info.")
                                 except Exception as e:
                                     st.error(f"Lakebase write failed: {e}")
 
-            # Planner notes
-            st.markdown("### Planner Note")
-            note = st.text_area("Add a note (saved to Lakebase, attached to this facility)")
-            if st.button("Save note") and note:
+            # Planner note
+            st.markdown("### 📝 Planner note")
+            note = st.text_area(
+                "Add context (saved to Lakebase, attached to this facility)",
+                placeholder="e.g. Confirmed by phone — refers all ICU cases to NMC Hospital.",
+                label_visibility="collapsed",
+            )
+            if st.button("Save note") and note.strip():
                 try:
-                    db.add_annotation(fid, planner_id, note)
+                    db.add_annotation(fid, planner_id, note.strip())
                     st.success("Note saved.")
                 except Exception as e:
                     st.error(f"Lakebase write failed: {e}")
 
-            # Source URLs (citations) — handle numpy array safely
-            urls_raw = f.get("source_urls")
-            urls: list = []
-            if urls_raw is not None:
-                try:
-                    urls = list(urls_raw)
-                except TypeError:
-                    urls = []
+            # Citations
+            urls = safe_list(f.get("source_urls"))
             if urls:
-                st.markdown("### Sources")
-                for u in urls[:10]:
-                    if u:
+                st.markdown("### 🔗 Sources")
+                seen: set[str] = set()
+                for u in urls:
+                    if u and u not in seen:
+                        seen.add(u)
                         st.markdown(f"- {u}")
+                        if len(seen) >= 10:
+                            break
 
 
 # ---------------------------------------------------------------------------
-# Tab 3 — District context (NFHS-5)
+# Tab 3 — District context
 # ---------------------------------------------------------------------------
-
 
 with tab_district:
-    st.subheader("District Health Context — NFHS-5")
-    state_for_district = st.text_input("State", value=state or "Madhya Pradesh")
+    st.markdown("#### District health context — NFHS-5 (2019–21)")
+    state_for_district = st.text_input(
+        "State", value=state or "Madhya Pradesh", help="e.g. Madhya Pradesh — has Jhabua at the bottom of literacy"
+    )
     if state_for_district:
         try:
             d = db.district_health_for(state_for_district)
@@ -241,17 +424,19 @@ with tab_district:
             st.error(f"Query failed: {e}")
             d = pd.DataFrame()
         if d.empty:
-            st.info("No district health data for that state.")
+            st.info("No NFHS-5 rows for that state. Try INITCAP spelling, e.g. 'Madhya Pradesh'.")
         else:
             st.caption(
-                "Lower women's literacy correlates with maternal-health burden. "
-                "Use this view to spot districts where verified facility coverage matters most."
+                "Lower women's literacy and lower institutional birth rates flag districts where "
+                "verified facility coverage matters most. Use Trust Desk to find real facilities, not claimed ones."
             )
             st.dataframe(
                 d.sort_values("women_age_15_49_who_are_literate_pct"),
                 hide_index=True,
                 use_container_width=True,
                 column_config={
+                    "district": "District",
+                    "state": "State",
                     "women_age_15_49_who_are_literate_pct": st.column_config.ProgressColumn(
                         "Women literate (%)", min_value=0, max_value=100, format="%.1f"
                     ),
@@ -269,26 +454,27 @@ with tab_district:
 
 
 # ---------------------------------------------------------------------------
-# Tab 4 — Planner work persistence (Lakebase-backed)
+# Tab 4 — My Work
 # ---------------------------------------------------------------------------
 
-
 with tab_work:
-    st.subheader(f"Work history — `{planner_id}`")
+    st.markdown(f"#### Work history for `{planner_id}`")
     try:
         work = db.planner_work(planner_id)
     except Exception as e:
         st.error(f"Lakebase read failed: {e}")
         work = {"verifications": pd.DataFrame(), "annotations": pd.DataFrame()}
 
-    st.markdown("#### Verifications")
-    if work["verifications"].empty:
-        st.info("No verifications yet.")
-    else:
-        st.dataframe(work["verifications"], hide_index=True, use_container_width=True)
-
-    st.markdown("#### Annotations")
-    if work["annotations"].empty:
-        st.info("No notes yet.")
-    else:
-        st.dataframe(work["annotations"], hide_index=True, use_container_width=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("##### ✅ Verifications")
+        if work["verifications"].empty:
+            st.info("No verifications yet. Inspect a facility and click Verify / Reject / Needs info.")
+        else:
+            st.dataframe(work["verifications"], hide_index=True, use_container_width=True)
+    with col2:
+        st.markdown("##### 📝 Annotations")
+        if work["annotations"].empty:
+            st.info("No notes yet.")
+        else:
+            st.dataframe(work["annotations"], hide_index=True, use_container_width=True)
