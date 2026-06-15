@@ -211,8 +211,14 @@ with tab_facility:
                 except Exception as e:
                     st.error(f"Lakebase write failed: {e}")
 
-            # Source URLs (citations)
-            urls = f.get("source_urls") or []
+            # Source URLs (citations) — handle numpy array safely
+            urls_raw = f.get("source_urls")
+            urls: list = []
+            if urls_raw is not None:
+                try:
+                    urls = list(urls_raw)
+                except TypeError:
+                    urls = []
             if urls:
                 st.markdown("### Sources")
                 for u in urls[:10]:
