@@ -44,7 +44,7 @@ class Config:
 
     # Lakebase
     lakebase_host: str = os.getenv("LAKEBASE_HOST", "")
-    lakebase_db: str = os.getenv("LAKEBASE_DB", "trust_desk")
+    lakebase_db: str = os.getenv("LAKEBASE_DB", "databricks_postgres")
     lakebase_user: str = os.getenv("LAKEBASE_USER", "")
 
     # Claim taxonomy (Devpost called these out explicitly)
