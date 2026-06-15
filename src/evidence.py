@@ -73,21 +73,29 @@ def trust_score(
 ) -> float:
     """Weighted aggregate.
 
-    - More supporting evidence raises score
+    - Need multiple supports for high confidence (single mention isn't proof)
     - Any contradicting evidence drops sharply
     - Low extraction confidence caps the score
     """
     if claim_count == 0:
         return 0.0
-    base = extraction_conf
-    boost = min(0.3, 0.08 * supports)
-    penalty = min(0.6, 0.25 * contradicts)
+    # Start below extraction_conf — a single rules hit isn't proof on its own
+    base = max(0.0, extraction_conf - 0.20)
+    # Reward corroboration up to ~+0.30 (need ~4 supports to fully boost)
+    boost = min(0.30, 0.08 * supports)
+    # Penalty for contradictions (steep)
+    penalty = min(0.80, 0.30 * contradicts)
     return max(0.0, min(1.0, base + boost - penalty))
 
 
 def status_label(trust: float, supports: int, contradicts: int) -> str:
-    if contradicts > 0 and supports == 0:
+    # Any contradiction with no countervailing support → contradicted
+    if contradicts >= 1 and supports <= contradicts:
         return "contradicted"
-    if trust >= 0.7 and supports >= 1:
+    # Mixed signal → unclear
+    if contradicts >= 1:
+        return "unclear"
+    # Need both a healthy trust score AND multiple corroborating supports
+    if trust >= 0.75 and supports >= 2:
         return "verified"
     return "unclear"

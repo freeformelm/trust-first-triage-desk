@@ -109,9 +109,16 @@ CAPABILITY_RULES: tuple[CapabilityRule, ...] = (
 )
 
 
-CONTRADICTION_PATTERN = re.compile(
+CONTRADICTION_BEFORE = re.compile(
     r"\b(?:no|not|without|lack of|absence of|unavailable|do(?:es)? not have|doesn'?t have|"
-    r"does not offer|not equipped|referred elsewhere|refer(?:s|red)? out|not provided)\b",
+    r"does not offer|not equipped|not provided|in-?house\s+(?:no|none))\b",
+    re.IGNORECASE,
+)
+
+CONTRADICTION_AFTER = re.compile(
+    r"\b(?:cases? (?:are )?referred to|patients? (?:are )?referred to|refer(?:s|red)? out|"
+    r"transferred to|managed elsewhere|treated elsewhere|sent to|not available|"
+    r"not (?:offered|provided|in[- ]?house)|elsewhere)\b",
     re.IGNORECASE,
 )
 
@@ -299,12 +306,12 @@ def find_evidence_for_capability(
             for pat in rule.text_patterns:
                 for m in re.finditer(pat, haystack, re.IGNORECASE):
                     snippet = _span(haystack, m.start(), m.end())
-                    before = haystack[max(0, m.start() - 40) : m.start()]
-                    polarity = (
-                        "contradicts"
-                        if CONTRADICTION_PATTERN.search(before)
-                        else "supports"
-                    )
+                    before = haystack[max(0, m.start() - 50) : m.start()]
+                    after = haystack[m.end() : min(len(haystack), m.end() + 80)]
+                    if CONTRADICTION_BEFORE.search(before) or CONTRADICTION_AFTER.search(after):
+                        polarity = "contradicts"
+                    else:
+                        polarity = "supports"
                     eid = hashlib.sha1(f"{claim_id}|{snippet[:64]}".encode("utf-8")).hexdigest()[:16]
                     out.append(
                         EvidenceRow(
