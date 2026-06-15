@@ -11,10 +11,19 @@
 
 # COMMAND ----------
 
+# MAGIC %load_ext autoreload
+# MAGIC %autoreload 2
+
+# COMMAND ----------
+
 import sys, os
 repo_root = os.path.abspath(os.path.join(os.getcwd(), ".."))
 if repo_root not in sys.path:
     sys.path.insert(0, repo_root)
+
+for mod in list(sys.modules):
+    if mod.startswith("src."):
+        del sys.modules[mod]
 
 from src.config import CFG
 from src.ingest import run_all_bronze, run_all_silver
