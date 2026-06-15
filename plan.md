@@ -145,6 +145,11 @@ Scaffolding complete. Agent briefs in `agent_briefs/`. Next action: workspace au
 ## Decisions Log
 - 2026-06-15: Hackathon = Healthcare Facility Intelligence, Free Edition, Databricks App deliverable
 - 2026-06-15: Recommended Track 1 (Facility Trust Desk) over Tracks 2-4 — see "Why Track 1"
+- 2026-06-15: LOCKED — Trust-First Triage Desk (Track 1, with stretch Track 2 district context)
+- 2026-06-15: Team Perin Shah (DE) + Chialing Wei (DS) registered
+- 2026-06-15: Public repo created — https://github.com/freeformelm/trust-first-triage-desk
+- 2026-06-15: Lakebase `trust_desk` instance provisioned
+- 2026-06-15: EDA confirmed — 10,088 facilities (99% with coords), 706 NFHS districts, 165,627 pincode rows (93% with coords)
 
 ## Risks
 - Free Edition compute / LLM quota — batch + cache aggressively
