@@ -70,7 +70,10 @@ Confirmed from schema: facility table has FIVE rich claim surfaces.
 **Citation source:** `source_urls` (JSON array per facility) — every trust-desk score can cite a URL.
 
 ## Claim Extraction Notes
-(fill in as we build)
+- **State column unreliable** — confirmed real example: row `fac0cc70-...` (Kerala Sanjivani) has `address_stateOrRegion = "Alappuzha"` (a district, not a state). Source-data quality issue. Use pincode lookup for canonical state/district when possible.
+- **Baseline classifier** (`src/classifier.py`) is rules-only with regex + specialty-code mapping. Six target capabilities: icu, nicu, maternity, emergency, oncology, trauma.
+- **Confidence tiers (rules baseline):** 0.85 capabilities text · 0.80 specialty code · 0.75 procedures/equipment text. LLM fallback (Chialing) will refine.
+- **6 / 10,088 facilities** dropped by India bounding-box filter — 99.94% have usable coordinates after cleaning.
 
 ## Evidence Linking Notes
 (fill in as we build)
