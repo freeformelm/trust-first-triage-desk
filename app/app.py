@@ -48,14 +48,19 @@ st.markdown(
         /* Hero band */
         .hero {{
             background: linear-gradient(95deg, {DATABRICKS_INK} 0%, #133239 100%);
-            color: white;
+            color: #ffffff !important;
             padding: 1.6rem 1.8rem;
             border-radius: 10px;
             margin-bottom: 1.2rem;
         }}
-        .hero h1 {{ font-size: 1.85rem; margin: 0 0 0.3rem 0; font-weight: 700; }}
-        .hero p {{ margin: 0; color: #d9e4e7; font-size: 1rem; }}
-        .hero .accent {{ color: {DATABRICKS_RED}; font-weight: 700; }}
+        .hero h1, .hero h1 * {{
+            font-size: 1.85rem;
+            margin: 0 0 0.3rem 0;
+            font-weight: 700;
+            color: #ffffff !important;
+        }}
+        .hero p {{ margin: 0; color: #d9e4e7 !important; font-size: 1rem; }}
+        .hero .accent {{ color: {DATABRICKS_RED} !important; font-weight: 700; }}
 
         /* Section headers */
         h2, h3 {{ color: {DATABRICKS_INK}; }}
