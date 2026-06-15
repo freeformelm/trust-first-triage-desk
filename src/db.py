@@ -22,15 +22,31 @@ from src.config import CFG
 
 @lru_cache(maxsize=1)
 def _sql_conn():
-    """Single shared connection. Reads `DATABRICKS_HOST` + warehouse path from env."""
+    """Single shared connection.
+
+    Local dev: reads DATABRICKS_TOKEN (PAT) from env.
+    Deployed Databricks App: uses the SDK's default credential chain
+    (auto-picks up DATABRICKS_CLIENT_ID/SECRET injected by the runtime).
+    """
     server_hostname = os.environ["DATABRICKS_HOST"].replace("https://", "").rstrip("/")
-    http_path = os.environ["DATABRICKS_HTTP_PATH"]  # e.g. /sql/1.0/warehouses/<id>
-    # When running inside a Databricks App the OAuth token is auto-provided
-    access_token = os.environ.get("DATABRICKS_TOKEN") or os.environ.get("DATABRICKS_OAUTH_TOKEN")
+    http_path = os.environ["DATABRICKS_HTTP_PATH"]
+
+    access_token = os.environ.get("DATABRICKS_TOKEN")
+    if access_token:
+        return dbsql.connect(
+            server_hostname=server_hostname,
+            http_path=http_path,
+            access_token=access_token,
+        )
+
+    # Deployed app: get token from SDK default credential chain
+    from databricks.sdk.core import Config
+
+    cfg = Config()
     return dbsql.connect(
         server_hostname=server_hostname,
         http_path=http_path,
-        access_token=access_token,
+        credentials_provider=lambda: cfg.authenticate,
     )
 
 
@@ -48,18 +64,40 @@ def query_delta(sql: str, params: dict[str, Any] | None = None) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-@lru_cache(maxsize=1)
+def _fetch_lakebase_token() -> str:
+    """Get a fresh OAuth token for Lakebase via the Databricks SDK.
+
+    Used when LAKEBASE_PASSWORD env var isn't set (deployed app scenario).
+    Tokens are short-lived (~1h), so we don't cache them at engine level.
+    """
+    from databricks.sdk import WorkspaceClient
+
+    w = WorkspaceClient()
+    instance_name = os.environ.get("LAKEBASE_INSTANCE_NAME", "ep-solitary-shape-d8czihec")
+    cred = w.database.generate_database_credential(
+        request_id="trust-desk-app",
+        instance_names=[instance_name],
+    )
+    return cred.token
+
+
 def lakebase_engine():
+    """Fresh engine per call so OAuth tokens stay valid.
+
+    Tokens expire in ~1h. For an in-flight planner session this is fine, but
+    cache invalidation would be a bug. Re-create cheaply.
+    """
+    import urllib.parse
     from sqlalchemy import create_engine
 
     host = os.environ["LAKEBASE_HOST"]
-    db = os.environ.get("LAKEBASE_DB", "trust_desk")
+    db = os.environ.get("LAKEBASE_DB", "databricks_postgres")
     user = os.environ["LAKEBASE_USER"]
-    # Lakebase auths via OAuth — the password is a short-lived token. The Databricks
-    # SDK refreshes it; for the app runtime the env var `LAKEBASE_PASSWORD` is set.
-    password = os.environ["LAKEBASE_PASSWORD"]
+    password = os.environ.get("LAKEBASE_PASSWORD") or _fetch_lakebase_token()
+    user_q = urllib.parse.quote(user, safe="")
+    password_q = urllib.parse.quote(password, safe="")
     return create_engine(
-        f"postgresql+psycopg://{user}:{password}@{host}/{db}?sslmode=require",
+        f"postgresql+psycopg://{user_q}:{password_q}@{host}/{db}?sslmode=require",
         pool_pre_ping=True,
     )
 
