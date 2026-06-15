@@ -185,8 +185,20 @@ def triage_facilities(
     min_trust: float = 0.0,
     limit: int = 200,
 ) -> pd.DataFrame:
-    """One row per facility claiming the given capability, ranked by trust."""
-    state_filter = "AND f.state = :state" if state else ""
+    """One row per facility claiming the given capability, ranked by trust.
+
+    State filter is case-insensitive prefix match against state OR city — the
+    source `address_stateOrRegion` column occasionally holds a district name
+    instead of a state, so accept any substring hit.
+    """
+    state_filter = ""
+    if state:
+        state_filter = (
+            "AND ("
+            " LOWER(f.state) LIKE LOWER(:state_q)"
+            " OR LOWER(f.city)  LIKE LOWER(:state_q)"
+            ")"
+        )
     sql = f"""
         SELECT
           f.facility_id,
@@ -214,9 +226,9 @@ def triage_facilities(
           t.trust_score DESC
         LIMIT :limit
     """
-    params = {"capability": capability, "min_trust": min_trust, "limit": limit}
+    params: dict[str, Any] = {"capability": capability, "min_trust": min_trust, "limit": limit}
     if state:
-        params["state"] = state
+        params["state_q"] = f"{state.strip()}%"
     return query_delta(sql, params)
 
 
