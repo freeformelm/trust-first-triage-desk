@@ -4,7 +4,7 @@ pandas>=2.2
 pyarrow>=15.0
 
 # Databricks
-databricks-sdk>=0.30
+databricks-sdk>=0.100
 databricks-sql-connector>=3.3
 mlflow>=2.14
 
