@@ -44,9 +44,9 @@ display(spark.sql(f"""
 # COMMAND ----------
 
 display(spark.sql(f"""
-    SELECT state, COUNT(*) AS facility_count
+    SELECT address_stateOrRegion, COUNT(*) AS facility_count
     FROM {CFG.source_facilities}
-    GROUP BY state
+    GROUP BY address_stateOrRegion
     ORDER BY facility_count DESC
     LIMIT 10
 """))
