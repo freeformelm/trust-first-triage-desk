@@ -45,6 +45,31 @@ Read `../AGENT_BRIEF.md` first for project context.
 - **Empty arrays are valid.** Better no claim than a fabricated one.
 - **Robust JSON parse.** Wrap `json.loads` with regex fallback; log + skip on parse failure.
 
+## IMPORTANT — Data Is Semi-Structured Already (2026-06-15 update)
+After seeing the source schema, the `capability`, `procedure`, `equipment`, and `specialties` fields are JSON arrays of **sentence-level claims**, NOT raw prose. Example from a real facility:
+
+```
+capabilities = [
+  "24/7 Emergency Department",
+  "NICU Level III",
+  "Centre of Excellence in Fertility Medicine",
+  "Has more than 100 beds",
+  "Has 60 doctors",
+  ...
+]
+```
+
+Implication: most of the work is **CLASSIFY each array element into the taxonomy + extract a quantity if present**, NOT free-text NER. This is a much cheaper LLM job (or a rules+regex job with LLM fallback) — Free Edition friendly.
+
+**Suggested pipeline:**
+1. EXPLODE each facility's capabilities/equipment/procedures/specialties arrays into one-element rows (this is just SQL — no LLM yet)
+2. Rules pass: regex-match each element against `agent_briefs/contracts.md` "Capability Taxonomy → Source Specialty Code" mapping. Catches the easy ~70%.
+3. LLM pass: only the elements the rules can't classify → LLM normalizes to taxonomy + extracts quantities (bed count, level III, etc.)
+4. Cross-source-field bonus: if "icu" appears in BOTH `capabilities` AND `specialties` (criticalCareMedicine) → confidence boost
+5. Contradiction check: scan `description` for negation cues near the taxonomy term (`src/evidence.py::CONTRADICTION_CUES` already handles this)
+
+This three-tier (parse → rules → LLM-fallback) is way cheaper than LLM-per-row and gives better citations.
+
 ## Confidence Calibration Cheatsheet
 | Snippet | Confidence | Why |
 |---------|-----------|-----|

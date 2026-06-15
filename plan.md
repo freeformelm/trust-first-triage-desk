@@ -2,7 +2,8 @@
 
 ## Status
 **LOCKED:** Building **Trust-First Triage Desk** (Track 1 — Facility Trust Desk, with stretch Track 2 district context).
-Scaffolding complete. Agent briefs in `agent_briefs/`. Next action: workspace auth + ingest.
+Scaffolding ✓. Source schema confirmed ✓. Silver-layer transforms written ✓. Lakebase provisioned ✓.
+**Next action:** run `notebooks/02_build_silver.py` in workspace → silver tables → Chialing starts claim classification.
 
 ## ⚠ HARD CONSTRAINTS (Devpost)
 - **Deadline:** 2026-06-16 @ 2:30pm PDT (~24h from now — today is 2026-06-15)
