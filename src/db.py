@@ -295,6 +295,50 @@ def triage_facilities(
     return query_delta(sql, params)
 
 
+def triage_counts(
+    capability: str,
+    state: str | None = None,
+    min_trust: float = 0.0,
+) -> dict[str, int]:
+    """Status counts over the FULL result set (no LIMIT).
+
+    Used by the Triage view metrics so the badges reflect reality,
+    not the 200-row display cap.
+    """
+    state_filter = ""
+    params: dict[str, Any] = {"capability": capability, "min_trust": min_trust}
+    if state:
+        state_filter = (
+            "AND ("
+            " LOWER(f.state) LIKE LOWER(:state_q)"
+            " OR LOWER(f.city)  LIKE LOWER(:state_q)"
+            ")"
+        )
+        params["state_q"] = f"{state.strip()}%"
+    sql = f"""
+        SELECT
+          COUNT(*)                                      AS total,
+          COUNT_IF(t.status = 'verified')               AS verified,
+          COUNT_IF(t.status = 'unclear')                AS unclear,
+          COUNT_IF(t.status = 'contradicted')           AS contradicted
+        FROM {CFG.fq(CFG.gold_facility_trust)} t
+        JOIN {CFG.fq(CFG.silver_facility)}    f USING (facility_id)
+        WHERE t.capability = :capability
+          AND t.trust_score >= :min_trust
+          {state_filter}
+    """
+    df = query_delta(sql, params)
+    if df.empty:
+        return {"total": 0, "verified": 0, "unclear": 0, "contradicted": 0}
+    row = df.iloc[0]
+    return {
+        "total": int(row["total"]),
+        "verified": int(row["verified"]),
+        "unclear": int(row["unclear"]),
+        "contradicted": int(row["contradicted"]),
+    }
+
+
 def facility_detail(facility_id: str) -> pd.DataFrame:
     sql = f"""
         SELECT *

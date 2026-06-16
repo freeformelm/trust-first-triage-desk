@@ -454,14 +454,28 @@ with tab_triage:
     if df.empty:
         st.info("No facilities match. Loosen filters or try a different capability.")
     else:
-        verified = int((df["status"] == "verified").sum())
-        unclear = int((df["status"] == "unclear").sum())
-        contradicted = int((df["status"] == "contradicted").sum())
+        # Full-set counts (table is LIMITed at 200, metrics must reflect reality)
+        try:
+            counts = db.triage_counts(
+                capability=capability,
+                state=state or None,
+                min_trust=min_trust,
+            )
+        except Exception as e:
+            st.warning(f"Count query failed, showing display-only counts: {e}")
+            counts = {
+                "total": len(df),
+                "verified": int((df["status"] == "verified").sum()),
+                "unclear": int((df["status"] == "unclear").sum()),
+                "contradicted": int((df["status"] == "contradicted").sum()),
+            }
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Claiming the capability", len(df))
-        c2.metric("✅ Verified", verified)
-        c3.metric("⚠️ Unclear", unclear)
-        c4.metric("❌ Contradicted", contradicted)
+        c1.metric("Claiming the capability", counts["total"])
+        c2.metric("✅ Verified", counts["verified"])
+        c3.metric("⚠️ Unclear", counts["unclear"])
+        c4.metric("❌ Contradicted", counts["contradicted"])
+        if counts["total"] > len(df):
+            st.caption(f"Showing top {len(df)} of {counts['total']} — sorted by status then trust score.")
 
         with st.expander("📍 Map of these facilities", expanded=False):
             with_coords = df.dropna(subset=["latitude", "longitude"])
