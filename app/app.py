@@ -479,10 +479,18 @@ with tab_triage:
 
         with st.expander("📍 Map of these facilities", expanded=False):
             with_coords = df.dropna(subset=["latitude", "longitude"])
+            # India bounding box — keeps bad-geocoded outliers off the map
+            with_coords = with_coords[
+                with_coords["latitude"].between(6, 37)
+                & with_coords["longitude"].between(68, 98)
+            ]
             if not with_coords.empty:
                 st.map(with_coords.rename(columns={"latitude": "lat", "longitude": "lon"}))
+                dropped = int(df["latitude"].notna().sum()) - len(with_coords)
+                if dropped > 0:
+                    st.caption(f"Hid {dropped} facility/facilities with coordinates outside India.")
             else:
-                st.caption("No geocoded coordinates for these results.")
+                st.caption("No facilities with valid India coordinates in this result.")
 
         st.markdown("##### Results")
         st.caption(
