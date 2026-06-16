@@ -25,11 +25,12 @@ So we picked **Track 1: Facility Trust Desk** and built it as the foundation tha
 
 **Trust-First Triage Desk** is a Databricks App for a non-technical health planner.
 
-- **Triage view** — pick a capability (12 supported: ICU, NICU, maternity, emergency, oncology, trauma + surgery, cardiology, dialysis, radiology, pediatrics, ophthalmology), filter by state or city. Every claiming facility is ranked by trust score and color-coded: ✅ Verified, ⚠️ Unclear, ❌ Contradicted.
+- **Triage view** — pick a capability (12 supported: ICU, NICU, maternity, emergency, oncology, trauma + surgery, cardiology, dialysis, radiology, pediatrics, ophthalmology) **or browse all 10,088 facilities at once**. Filter by state or city, set a minimum trust score, choose how many rows to render. Every facility is ranked and color-coded: ✅ Verified, ⚠️ Unclear, ❌ Contradicted. Metrics always reflect the full set, the table is a display sample.
 - **Facility Detail modal** — opens over the triage list (no tab switching). Shows the exact claim text, every supporting and contradicting snippet from the facility's own description / capability / equipment / specialty fields, and a trust gauge.
 - **Operations & access chips** — surfaces availability indicators (24/7, ambulance, blood bank) and flags closed / under-construction / referral-out status before a planner commits.
-- **Persistent planner work** — verify / reject / needs-info buttons and free-text notes write to Lakebase Postgres. A "My Work" tab shows history across sessions.
+- **Persistent planner work** — verify / reject / needs-info buttons and free-text notes write to Lakebase Postgres. A "My Work" tab shows history across sessions. A sidebar OAuth-token input lets planners refresh Lakebase credentials in-session without redeploying.
 - **District context** — NFHS-5 health-burden indicators per district. Jhabua, Madhya Pradesh at 38.6% women's literacy is the underserved-district anchor for our demo.
+- **Data Quality tab** — live pipeline integrity audit: coverage metrics that reproduce the Devpost field-coverage numbers from our own pipeline, state-resolution provenance pivot, real examples of pincode-corrected states, trust outcomes per capability, and the hand-eval headline. Surfaces flaws instead of hiding them.
 
 Every status badge is grounded in a quoted snippet. We never present weak evidence as fact.
 
@@ -80,6 +81,8 @@ Postgres tables for planner verifications, annotations, shortlists, and saved se
 
 Databricks brand palette (`#FF3621`, `#0B2026`, `#EEEDE9`, `#F9F7F4`), forced light theme to override OS dark-mode auto-detect, hero band, status chips, trust bars, evidence cards color-coded green for supports and red for contradicts. "Inspect" opens a `@st.dialog` modal over the triage list instead of switching tabs.
 
+The Triage view always queries full-set status counts (the table itself is LIMITed to keep rendering snappy — a separate aggregate query backs the metric cards). The map filters every point through the India bounding box at render time so bad-geocoded outliers never sneak past the silver-layer validator. Facility names, cities, and states render through a smart-title-case helper that lowercases noise words ("and", "of", "the") and preserves medical / civic acronyms (ICU, NICU, PICU, CT, MRI, AIIMS, KEM, JIPMER, …).
+
 ### Evaluation
 
 Twenty hand-labeled `(facility × capability)` scenarios drawn from real Marketplace rows, stratified across verified / contradicted / unclear / low-extraction-confidence / edge cases. Reproducible, deterministic, offline — `python -m eval.run_eval`:
@@ -107,6 +110,12 @@ The three remaining errors are all in the *safe* direction (under-claiming, neve
 
 - **The `address_stateOrRegion` district-in-state-column issue.** "Sanjivani Multi Speciality Hospital, Kerala" had `state = "Alappuzha"` — a district. Discovered while building the Triage state filter, fixed with the pincode lookup → canonical state resolution.
 
+- **The "all 200 facilities are Verified" trap.** Our first Triage metric counted rows in the `LIMIT 200` display set, so "Verified 200, Unclear 0, Contradicted 0" was a lie produced by the cap, not the data. Fixed by issuing a separate aggregate query that never applies a row limit, and showing a "Showing top N of M" caption when they diverge.
+
+- **Bad-geocoded coordinates surviving the silver bbox filter.** Six rows were dropped at silver-layer validation, but the Triage map still received them via the unfiltered query result. Re-applied the India bounding box at render time so the map never plots a hospital in the Atlantic Ocean.
+
+- **`ARRAY_DISTINCT` was an obvious win we missed at first.** The source `specialties` array often contained the same code repeated 12 times in one row, inflating downstream claim counts. One word in the silver SQL — `ARRAY_DISTINCT(FROM_JSON(...))` — collapsed the noise.
+
 ## Accomplishments that we're proud of
 
 - **A live, deployed Databricks App on Free Edition** — Bronze / Silver / Gold Delta tables, Lakebase Postgres for planner persistence, Foundation Model APIs for LLM fallback, and a polished Streamlit UI, all running end-to-end without external paid services.
@@ -115,6 +124,8 @@ The three remaining errors are all in the *safe* direction (under-claiming, neve
 - **Status thresholds that move thousands of facilities from "verified" to "unclear" — and that's the right answer.** The pipeline reports uncertainty honestly. The shift IS the "Evidence & Uncertainty" judging signal.
 - **Reproducible evaluation.** `python -m eval.run_eval` runs offline, deterministic, no DB or LLM needed. Twenty hand-labeled scenarios drawn from real Marketplace rows, stratified across verified / contradicted / unclear / low-confidence / edge cases.
 - **A demo arc that lands in three minutes.** Pre-pinned tabs, a contradicted ICU at India Hospital, Thiruvananthapuram (Kerala), a verified NICU at Wadia Children Hospital, Mumbai, and a Jhabua, MP district panel showing 38.6% women's literacy. Every click cites source text.
+
+- **A live, in-app Data Quality dashboard that reproduces our own pipeline metrics.** Coverage numbers, state-resolution provenance, real correction examples, trust outcomes per capability, and eval headline (17/20 accuracy, P=R=1.00 on contradictions) — all from live Delta queries, no static screenshots.
 
 ## What we learned
 
