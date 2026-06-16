@@ -13,6 +13,7 @@ import streamlit as st
 
 from src import db
 from src.db import CAPABILITIES_FOR_TRIAGE
+from src.indicators import extract_facility_indicators
 
 # ---------------------------------------------------------------------------
 # Page config + brand styling
@@ -77,6 +78,8 @@ st.markdown(
         .chip-verified    {{ background: #DFF3E5; color: {SUPPORTS_GREEN}; border: 1px solid {SUPPORTS_GREEN}; }}
         .chip-unclear     {{ background: #FBEFD9; color: {UNCLEAR_AMBER};  border: 1px solid {UNCLEAR_AMBER}; }}
         .chip-contradicted{{ background: #F7DDD8; color: {CONTRADICTS_RED}; border: 1px solid {CONTRADICTS_RED}; }}
+        .chip-available   {{ background: #DFF3E5; color: {SUPPORTS_GREEN}; border: 1px solid {SUPPORTS_GREEN}; }}
+        .chip-unavailable {{ background: #F7DDD8; color: {CONTRADICTS_RED}; border: 1px solid {CONTRADICTS_RED}; }}
 
         /* Evidence cards */
         .evcard {{
@@ -261,6 +264,32 @@ def render_facility_detail(fid: str, planner_id: str) -> None:
 
     with st.expander("📝 Description (source text)", expanded=True):
         st.write(f.get("description") or "_(no description in source)_")
+
+    # Operations & access indicators — practical signals a planner needs that
+    # aren't clinical capabilities (open 24/7, wheelchair access, ambulance,
+    # blood bank, pharmacy, cashless; plus closure/under-construction caveats).
+    # Computed live from the facility's own text; every chip cites its source.
+    indicators = extract_facility_indicators(
+        capabilities=safe_list(f.get("capabilities")),
+        procedures=safe_list(f.get("procedures")),
+        equipment=safe_list(f.get("equipment")),
+        description=f.get("description"),
+    )
+    if indicators:
+        st.markdown("### Operations & access")
+        for ind in [i for i in indicators if i.status == "attention"]:
+            st.warning(f"{ind.icon} **{ind.label}** — “{ind.source_quote}”  ·  source: `{ind.source_field}`")
+        features = [i for i in indicators if i.status != "attention"]
+        if features:
+            cols = st.columns(3)
+            for idx, ind in enumerate(features):
+                with cols[idx % 3]:
+                    suffix = "" if ind.status == "available" else " — not available"
+                    st.markdown(
+                        f'<span class="chip chip-{ind.status}">{ind.icon} {ind.label}{suffix}</span>',
+                        unsafe_allow_html=True,
+                    )
+                    st.caption(f"“{ind.source_quote[:90]}” · {ind.source_field}")
 
     st.markdown("### Capability claims & evidence")
     claims = db.facility_claims_with_evidence(fid)
