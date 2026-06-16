@@ -295,6 +295,66 @@ def triage_facilities(
     return query_delta(sql, params)
 
 
+def browse_facilities(
+    state: str | None = None,
+    limit: int = 200,
+) -> pd.DataFrame:
+    """Browse mode — no capability filter. Aggregates gold_facility_trust per facility:
+    best trust across any capability, list of verified capabilities.
+    """
+    state_filter = ""
+    params: dict[str, Any] = {"limit": limit}
+    if state:
+        state_filter = (
+            "AND ("
+            " LOWER(f.state) LIKE LOWER(:state_q)"
+            " OR LOWER(f.city)  LIKE LOWER(:state_q)"
+            ")"
+        )
+        params["state_q"] = f"{state.strip()}%"
+    sql = f"""
+        WITH per_facility AS (
+          SELECT
+            facility_id,
+            MAX(trust_score) AS best_trust,
+            COUNT_IF(status = 'verified')     AS verified_caps,
+            COUNT_IF(status = 'unclear')      AS unclear_caps,
+            COUNT_IF(status = 'contradicted') AS contradicted_caps,
+            COLLECT_SET(CASE WHEN status = 'verified' THEN capability END) AS verified_capabilities
+          FROM {CFG.fq(CFG.gold_facility_trust)}
+          GROUP BY facility_id
+        )
+        SELECT
+          f.facility_id, f.name, f.city, f.state, f.pincode,
+          f.latitude, f.longitude,
+          COALESCE(p.best_trust, 0.0)           AS trust_score,
+          COALESCE(p.verified_caps, 0)          AS verified_caps,
+          COALESCE(p.unclear_caps, 0)           AS unclear_caps,
+          COALESCE(p.contradicted_caps, 0)      AS contradicted_caps,
+          p.verified_capabilities,
+          CASE
+            WHEN p.contradicted_caps > 0 AND p.verified_caps = 0 THEN 'contradicted'
+            WHEN p.verified_caps >= 1                            THEN 'verified'
+            ELSE 'unclear'
+          END                                    AS status,
+          f.official_phone, f.official_website, f.source_urls
+        FROM {CFG.fq(CFG.silver_facility)}    f
+        LEFT JOIN per_facility                p USING (facility_id)
+        WHERE 1=1
+          {state_filter}
+        ORDER BY
+          CASE
+            WHEN p.contradicted_caps > 0 AND p.verified_caps = 0 THEN 2
+            WHEN p.verified_caps >= 1                            THEN 0
+            ELSE 1
+          END,
+          p.best_trust DESC NULLS LAST,
+          f.name
+        LIMIT :limit
+    """
+    return query_delta(sql, params)
+
+
 def triage_counts(
     capability: str,
     state: str | None = None,

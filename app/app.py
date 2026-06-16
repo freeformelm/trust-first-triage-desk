@@ -160,7 +160,9 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("### 🔍 Filters")
-    capability = st.selectbox("Capability", CAPABILITIES_FOR_TRIAGE, index=0)
+    CAPABILITY_OPTIONS = ("(Any — browse all)",) + tuple(CAPABILITIES_FOR_TRIAGE)
+    capability_choice = st.selectbox("Capability", CAPABILITY_OPTIONS, index=0)
+    capability = None if capability_choice.startswith("(Any") else capability_choice
     state = st.text_input("State or city (prefix OK)", value="", placeholder="e.g. Kerala, Mumbai")
     min_trust = st.slider("Min trust score", 0.0, 1.0, 0.0, 0.05)
 
@@ -259,6 +261,40 @@ def safe_list(val) -> list:
         return []
 
 
+# Smart title-case: handles SHOUTING NAMES, weird spacing, and preserves
+# common medical / civic acronyms that should stay uppercase.
+_ACRONYMS = {
+    "icu", "nicu", "picu", "ccu", "er", "ot", "ir", "ent", "ivf", "mri",
+    "ct", "pet", "ecg", "egg", "ekg", "ecmo", "iit", "iim", "aiims",
+    "kims", "scb", "ram", "sgpgi", "amri", "max", "kgmu", "jipmer",
+    "nimhans", "ihbas", "tmh", "kem", "lhmc", "rml", "abvims", "iiitm",
+    "ngo", "phc", "chc", "hsc", "ub", "iv",
+}
+_LOWERCASE_WORDS = {"and", "of", "the", "for", "in", "on", "at", "to", "a", "an"}
+
+
+def smart_titlecase(s: str | None) -> str:
+    if not s:
+        return ""
+    out = []
+    tokens = s.strip().split()
+    for i, tok in enumerate(tokens):
+        # Keep parenthesized acronyms / common patterns
+        lower = tok.lower().strip(".,():;'\"")
+        if lower in _ACRONYMS:
+            out.append(lower.upper())
+        elif i > 0 and lower in _LOWERCASE_WORDS:
+            out.append(lower)
+        elif "&" in tok:
+            out.append(tok)  # preserve "&"
+        elif tok.startswith("'") or any(c.isdigit() for c in tok):
+            out.append(tok)  # leave numbers / quirky tokens alone
+        else:
+            # capitalize each hyphenated piece
+            out.append("-".join(p[:1].upper() + p[1:].lower() for p in tok.split("-")))
+    return " ".join(out)
+
+
 # ---------------------------------------------------------------------------
 # Facility detail — shared between modal (dialog) and tab
 # ---------------------------------------------------------------------------
@@ -276,7 +312,7 @@ def render_facility_detail(fid: str, planner_id: str) -> None:
         return
 
     f = fac.iloc[0]
-    st.markdown(f"## {f['name']}")
+    st.markdown(f"## {smart_titlecase(f['name'])}")
     meta_cols = st.columns(4)
     meta_cols[0].metric("City", f.get("city") or "—")
     meta_cols[1].metric("State", f.get("state") or "—")
@@ -419,16 +455,22 @@ tab_triage, tab_facility, tab_district, tab_work, tab_dq = tabs
 # ---------------------------------------------------------------------------
 
 with tab_triage:
-    where_clause = f"in **{state}**" if state else "across India"
-    st.markdown(f"#### Facilities claiming **{capability.upper()}** {where_clause}")
+    where_clause = f"in **{smart_titlecase(state)}**" if state else "across India"
+    if capability is None:
+        st.markdown(f"#### Browsing all facilities {where_clause}")
+    else:
+        st.markdown(f"#### Facilities claiming **{capability.upper()}** {where_clause}")
 
     try:
-        df = db.triage_facilities(
-            capability=capability,
-            state=state or None,
-            min_trust=min_trust,
-            limit=200,
-        )
+        if capability is None:
+            df = db.browse_facilities(state=state or None, limit=200)
+        else:
+            df = db.triage_facilities(
+                capability=capability,
+                state=state or None,
+                min_trust=min_trust,
+                limit=200,
+            )
     except Exception as e:
         st.error(f"Delta query failed: {e}")
         df = pd.DataFrame()
@@ -454,27 +496,41 @@ with tab_triage:
     if df.empty:
         st.info("No facilities match. Loosen filters or try a different capability.")
     else:
-        # Full-set counts (table is LIMITed at 200, metrics must reflect reality)
-        try:
-            counts = db.triage_counts(
-                capability=capability,
-                state=state or None,
-                min_trust=min_trust,
-            )
-        except Exception as e:
-            st.warning(f"Count query failed, showing display-only counts: {e}")
+        if capability is None:
+            # Browse mode: facility-level rollup counts
+            total = len(df)  # already capped at 200 from browse_facilities
+            verified = int((df["status"] == "verified").sum())
+            unclear = int((df["status"] == "unclear").sum())
+            contradicted = int((df["status"] == "contradicted").sum())
             counts = {
-                "total": len(df),
-                "verified": int((df["status"] == "verified").sum()),
-                "unclear": int((df["status"] == "unclear").sum()),
-                "contradicted": int((df["status"] == "contradicted").sum()),
+                "total": total,
+                "verified": verified,
+                "unclear": unclear,
+                "contradicted": contradicted,
             }
+            metric_label = "Facilities shown"
+        else:
+            try:
+                counts = db.triage_counts(
+                    capability=capability,
+                    state=state or None,
+                    min_trust=min_trust,
+                )
+            except Exception as e:
+                st.warning(f"Count query failed, showing display-only counts: {e}")
+                counts = {
+                    "total": len(df),
+                    "verified": int((df["status"] == "verified").sum()),
+                    "unclear": int((df["status"] == "unclear").sum()),
+                    "contradicted": int((df["status"] == "contradicted").sum()),
+                }
+            metric_label = "Claiming the capability"
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Claiming the capability", counts["total"])
+        c1.metric(metric_label, counts["total"])
         c2.metric("✅ Verified", counts["verified"])
         c3.metric("⚠️ Unclear", counts["unclear"])
         c4.metric("❌ Contradicted", counts["contradicted"])
-        if counts["total"] > len(df):
+        if capability is not None and counts["total"] > len(df):
             st.caption(f"Showing top {len(df)} of {counts['total']} — sorted by status then trust score.")
 
         with st.expander("📍 Map of these facilities", expanded=False):
@@ -503,11 +559,25 @@ with tab_triage:
             with st.container():
                 c_left, c_mid, c_right = st.columns([5, 2, 1])
                 with c_left:
+                    # Browse mode rows have no supporting/contradicting evidence counts
+                    if capability is None:
+                        verified_cap_count = int(r.get("verified_caps") or 0)
+                        unclear_cap_count = int(r.get("unclear_caps") or 0)
+                        contra_cap_count = int(r.get("contradicted_caps") or 0)
+                        evidence_line = (
+                            f"{verified_cap_count} verified · "
+                            f"{unclear_cap_count} unclear · "
+                            f"{contra_cap_count} contradicted (across all capabilities)"
+                        )
+                    else:
+                        evidence_line = (
+                            f"{int(r.get('supporting_evidence_count') or 0)} supporting · "
+                            f"{int(r.get('contradicting_evidence_count') or 0)} contradicting"
+                        )
                     st.markdown(
-                        f"**{r['name']}** &nbsp; {status_chip(r['status'])}<br>"
-                        f"<span style='color:#666;font-size:0.85rem;'>📍 {r['city'] or '—'}, {r['state'] or '—'} &nbsp;·&nbsp; "
-                        f"{int(r['supporting_evidence_count'] or 0)} supporting · "
-                        f"{int(r['contradicting_evidence_count'] or 0)} contradicting</span>"
+                        f"**{smart_titlecase(r['name'])}** &nbsp; {status_chip(r['status'])}<br>"
+                        f"<span style='color:#666;font-size:0.85rem;'>📍 {smart_titlecase(r['city']) or '—'}, {smart_titlecase(r['state']) or '—'} &nbsp;·&nbsp; "
+                        f"{evidence_line}</span>"
                         f"{trust_bar_html(r['trust_score'] or 0)}",
                         unsafe_allow_html=True,
                     )
