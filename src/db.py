@@ -355,6 +355,54 @@ def browse_facilities(
     return query_delta(sql, params)
 
 
+def browse_counts(state: str | None = None) -> dict[str, int]:
+    """Browse-mode aggregates over the FULL silver_facility set (no LIMIT).
+
+    Verified counts as: facility has ≥1 verified capability.
+    Contradicted: facility has ≥1 contradicted AND zero verified.
+    Otherwise unclear.
+    """
+    state_filter = ""
+    params: dict[str, Any] = {}
+    if state:
+        state_filter = (
+            "AND ("
+            " LOWER(f.state) LIKE LOWER(:state_q)"
+            " OR LOWER(f.city)  LIKE LOWER(:state_q)"
+            ")"
+        )
+        params["state_q"] = f"{state.strip()}%"
+    sql = f"""
+        WITH per_facility AS (
+          SELECT
+            facility_id,
+            COUNT_IF(status = 'verified')     AS v,
+            COUNT_IF(status = 'contradicted') AS c
+          FROM {CFG.fq(CFG.gold_facility_trust)}
+          GROUP BY facility_id
+        )
+        SELECT
+          COUNT(*)                                                  AS total,
+          COUNT_IF(COALESCE(p.v, 0) >= 1)                           AS verified,
+          COUNT_IF(COALESCE(p.c, 0) >= 1 AND COALESCE(p.v, 0) = 0) AS contradicted,
+          COUNT_IF(COALESCE(p.v, 0) = 0 AND COALESCE(p.c, 0) = 0) AS unclear
+        FROM {CFG.fq(CFG.silver_facility)} f
+        LEFT JOIN per_facility p USING (facility_id)
+        WHERE 1=1
+          {state_filter}
+    """
+    df = query_delta(sql, params)
+    if df.empty:
+        return {"total": 0, "verified": 0, "unclear": 0, "contradicted": 0}
+    row = df.iloc[0]
+    return {
+        "total": int(row["total"]),
+        "verified": int(row["verified"]),
+        "unclear": int(row["unclear"]),
+        "contradicted": int(row["contradicted"]),
+    }
+
+
 def triage_counts(
     capability: str,
     state: str | None = None,

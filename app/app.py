@@ -165,6 +165,12 @@ with st.sidebar:
     capability = None if capability_choice.startswith("(Any") else capability_choice
     state = st.text_input("State or city (prefix OK)", value="", placeholder="e.g. Kerala, Mumbai")
     min_trust = st.slider("Min trust score", 0.0, 1.0, 0.0, 0.05)
+    row_limit = st.select_slider(
+        "Rows to display",
+        options=[100, 200, 500, 1000, 2000],
+        value=200,
+        help="Sample size for the table. Metrics always reflect the full set.",
+    )
 
     st.markdown("**Operations & access**")
     _ind_label_to_key = {label: key for key, label in FILTERABLE_INDICATORS}
@@ -463,13 +469,13 @@ with tab_triage:
 
     try:
         if capability is None:
-            df = db.browse_facilities(state=state or None, limit=200)
+            df = db.browse_facilities(state=state or None, limit=row_limit)
         else:
             df = db.triage_facilities(
                 capability=capability,
                 state=state or None,
                 min_trust=min_trust,
-                limit=200,
+                limit=row_limit,
             )
     except Exception as e:
         st.error(f"Delta query failed: {e}")
@@ -497,18 +503,18 @@ with tab_triage:
         st.info("No facilities match. Loosen filters or try a different capability.")
     else:
         if capability is None:
-            # Browse mode: facility-level rollup counts
-            total = len(df)  # already capped at 200 from browse_facilities
-            verified = int((df["status"] == "verified").sum())
-            unclear = int((df["status"] == "unclear").sum())
-            contradicted = int((df["status"] == "contradicted").sum())
-            counts = {
-                "total": total,
-                "verified": verified,
-                "unclear": unclear,
-                "contradicted": contradicted,
-            }
-            metric_label = "Facilities shown"
+            # Browse mode: facility-level rollup counts over the FULL set
+            try:
+                counts = db.browse_counts(state=state or None)
+            except Exception as e:
+                st.warning(f"Count query failed, showing display-only counts: {e}")
+                counts = {
+                    "total": len(df),
+                    "verified": int((df["status"] == "verified").sum()),
+                    "unclear": int((df["status"] == "unclear").sum()),
+                    "contradicted": int((df["status"] == "contradicted").sum()),
+                }
+            metric_label = "Total facilities"
         else:
             try:
                 counts = db.triage_counts(
@@ -530,8 +536,11 @@ with tab_triage:
         c2.metric("✅ Verified", counts["verified"])
         c3.metric("⚠️ Unclear", counts["unclear"])
         c4.metric("❌ Contradicted", counts["contradicted"])
-        if capability is not None and counts["total"] > len(df):
-            st.caption(f"Showing top {len(df)} of {counts['total']} — sorted by status then trust score.")
+        if counts["total"] > len(df):
+            st.caption(
+                f"Showing top {len(df)} of {counts['total']} — sorted by status then trust score. "
+                f"Adjust **Rows to display** in the sidebar to see more."
+            )
 
         with st.expander("📍 Map of these facilities", expanded=False):
             with_coords = df.dropna(subset=["latitude", "longitude"])
