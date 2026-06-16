@@ -180,16 +180,23 @@ CAPABILITY_RULES: tuple[CapabilityRule, ...] = (
 )
 
 
+# Negations / pre-modifiers that appear BEFORE the capability term.
 CONTRADICTION_BEFORE = re.compile(
     r"\b(?:no|not|without|lack of|absence of|unavailable|do(?:es)? not have|doesn'?t have|"
-    r"does not offer|not equipped|not provided|in-?house\s+(?:no|none))\b",
+    r"does not offer|not equipped|not provided|in-?house\s+(?:no|none)|"
+    r"proposed|upcoming|non[- ]?functional)\b",  # claimed-but-not-yet-operational
     re.IGNORECASE,
 )
 
+# Referral / not-yet-operational language that appears AFTER the capability term.
+# The "under construction / not yet operational" group catches facilities that LIST a
+# capability they are still building — a dangerous false-positive for a planner.
 CONTRADICTION_AFTER = re.compile(
     r"\b(?:cases? (?:are )?referred to|patients? (?:are )?referred to|refer(?:s|red)? out|"
     r"transferred to|managed elsewhere|treated elsewhere|sent to|not available|"
-    r"not (?:offered|provided|in[- ]?house)|elsewhere)\b",
+    r"not (?:offered|provided|in[- ]?house)|elsewhere|"
+    r"under construction|under renovation|not (?:yet )?operational|"
+    r"yet to be|non[- ]?functional|temporarily closed|being (?:built|constructed|set up))\b",
     re.IGNORECASE,
 )
 
