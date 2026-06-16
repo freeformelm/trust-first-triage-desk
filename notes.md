@@ -82,6 +82,7 @@ Confirmed from schema: facility table has FIVE rich claim surfaces.
 (fill in as we build)
 
 ## App / Lakebase Notes
+- **⚠ DE ACTION — REDEPLOY PENDING (Perin):** DS pushed an "Operations & access" feature, additive to the live `app.py` — it won't appear until the next `databricks apps deploy`. Commits `0796e19` (indicator chips in Facility Detail), `093aa59` (sidebar "Must offer" filter + hide closed/under-construction), + caption follow-up. New module `src/indicators.py`; `db.triage_facilities` now also selects capabilities/procedures/equipment/description (no new table, no pipeline rebuild). Please sync + redeploy, then eyeball the Facility Detail "Operations & access" section once.
 - Lakebase instance `ep-solitary-shape-d8czihec`, database `databricks_postgres` (NOT `trust_desk` — that's the project name we wanted, but Free Edition gives a single default db).
 - Schema init ✓ via `scripts/init_lakebase.py` (2026-06-15) — 5 tables: verifications, annotations, shortlists, saved_searches, claim_embeddings (+ pgvector).
 - App URL: https://trust-first-triage-desk-108684035875991.aws.databricksapps.com

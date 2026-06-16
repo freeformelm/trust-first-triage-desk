@@ -173,6 +173,12 @@ with st.sidebar:
     )
     require_indicator_keys = [_ind_label_to_key[lbl] for lbl in require_labels]
     hide_caveats = st.checkbox("Hide temporarily closed / under construction")
+    if require_indicator_keys or hide_caveats:
+        st.caption(
+            "These filters keep only facilities that **explicitly mention** the feature in "
+            "their own text. Absence is not denial — a facility that simply doesn't mention "
+            "it may still offer it. We filter on stated evidence, not assumptions."
+        )
 
     st.markdown("---")
     st.markdown("### ⭐ Demo shortcuts")
