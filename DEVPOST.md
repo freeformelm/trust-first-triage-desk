@@ -3,6 +3,7 @@
 > Verify what 10,088 Indian healthcare facilities actually claim — with evidence and honest uncertainty.
 
 **Live app:** https://trust-first-triage-desk-108684035875991.aws.databricksapps.com
+
 **Repo:** https://github.com/freeformelm/trust-first-triage-desk
 
 ---
@@ -37,35 +38,54 @@ Every status badge is grounded in a quoted snippet. We never present weak eviden
 **Architecture** — Bronze → Silver → Gold Delta medallion on Databricks Free Edition.
 
 ### Silver layer
-Five rich claim surfaces from the source schema: `capabilities` (sentence-level claims like *"NICU Level III"*), `equipment`, `procedures`, `specialties` (coded vocabulary like `criticalCareMedicine`), and `description` (prose). All four claim arrays arrive as JSON-array strings — we parse with `FROM_JSON(col, 'array<string>')`, cast numerics with `TRY_CAST`, and validate every lat/lng against an India bounding box ($6° \le \text{lat} \le 37°$, $68° \le \text{lng} \le 98°$). That filter caught six rows with bad geocoding — including a Kerala hospital whose coordinates pointed to the North Atlantic Ocean.
+
+Five rich claim surfaces from the source schema: `capabilities` (sentence-level claims like *"NICU Level III"*), `equipment`, `procedures`, `specialties` (coded vocabulary like `criticalCareMedicine`), and `description` (prose). All four claim arrays arrive as JSON-array strings — we parse with `FROM_JSON(col, 'array<string>')`, cast numerics with `TRY_CAST`, and validate every lat/lng against an India bounding box:
+
+```
+6° ≤ latitude  ≤ 37°
+68° ≤ longitude ≤ 98°
+```
+
+That filter caught six rows with bad geocoding — including a Kerala hospital whose coordinates pointed to the North Atlantic Ocean.
 
 A real source-data quality issue surfaced: `address_stateOrRegion` sometimes holds a *district* name instead of a state. We resolve canonical state via pincode lookup against a deduped India Post directory (165,627 post offices → 19,586 pincodes, with Head Office > Post Office > Branch Office priority). Raw values are preserved for audit, and every row carries a `state_source` enum ∈ `{pincode, source, unresolved}` for provenance.
 
 ### Three-tier claim classifier (`src/classifier.py`)
+
 1. **Parse** — explode JSON arrays into per-element rows
-2. **Rules** — 12 capability rules with regex text patterns + specialty-code lookups. Confidence tiers: $0.85$ for capability-array hits, $0.80$ for specialty codes, $0.75$ for procedures/equipment
-3. **LLM fallback** — Databricks Foundation Model API (`databricks-meta-llama-3-3-70b-instruct`) for elements rules can't classify. Capped at $0.75$ so it never out-trusts a rules hit
+2. **Rules** — 12 capability rules with regex text patterns + specialty-code lookups. Confidence tiers: **0.85** for capability-array hits, **0.80** for specialty codes, **0.75** for procedures/equipment
+3. **LLM fallback** — Databricks Foundation Model API (`databricks-meta-llama-3-3-70b-instruct`) for elements rules can't classify. Capped at **0.75** so it never out-trusts a rules hit
 
 ### Evidence retrieval
+
 Pure-Python sliding-window match scans every facility text field for capability terms. Polarity classification looks **both before and after** the match — the breakthrough that finally caught *"ICU cases referred to NMC Hospital"* patterns we were missing.
 
 ### Trust score
 
-$$\text{trust} = \max\!\Big(0,\ \min\!\big(1,\ (\text{conf} - 0.20) + \min(0.30,\ 0.08 s) - \min(0.80,\ 0.30 c)\big)\Big)$$
+```
+trust = max(0, min(1,
+    (extraction_confidence - 0.20)
+    + min(0.30, 0.08 * supporting_count)
+    - min(0.80, 0.30 * contradicting_count)
+))
+```
 
-where $s$ is supporting-evidence count and $c$ is contradicting-evidence count. Base starts *below* the extraction confidence — a single mention isn't proof. Status promotes to **verified** only when $\text{trust} \ge 0.75$ AND $s \ge 2$. Any contradiction with $s \le c$ → **contradicted**.
+Base starts **below** the extraction confidence — a single mention isn't proof. Status promotes to **verified** only when `trust >= 0.75` AND `supporting_count >= 2`. Any contradiction with `supporting_count <= contradicting_count` → **contradicted**.
 
 ### Lakebase persistence
+
 Postgres tables for planner verifications, annotations, shortlists, and saved searches, plus a `pgvector` column reserved for claim embeddings. Schema initialized via `scripts/init_lakebase.py`.
 
 ### Streamlit app on Databricks Apps
+
 Databricks brand palette (`#FF3621`, `#0B2026`, `#EEEDE9`, `#F9F7F4`), forced light theme to override OS dark-mode auto-detect, hero band, status chips, trust bars, evidence cards color-coded green for supports and red for contradicts. "Inspect" opens a `@st.dialog` modal over the triage list instead of switching tabs.
 
 ### Evaluation
+
 Twenty hand-labeled `(facility × capability)` scenarios drawn from real Marketplace rows, stratified across verified / contradicted / unclear / low-extraction-confidence / edge cases. Reproducible, deterministic, offline — `python -m eval.run_eval`:
 
 - **Overall accuracy: 17 / 20 = 85%**
-- **Contradiction detection: precision = 1.0, recall = 1.0** — the safety-critical metric
+- **Contradiction detection: precision = 1.00, recall = 1.00** — the safety-critical metric
 
 The three remaining errors are all in the *safe* direction (under-claiming, never over-claiming).
 
@@ -77,7 +97,7 @@ The three remaining errors are all in the *safe* direction (under-claiming, neve
 
 - **Streamlit `st.tabs` can't be programmatically switched.** Clicking "Inspect" set a session-state facility ID but the user stayed stuck on the Triage tab. Solved by promoting Facility Detail to a `@st.dialog` modal — and the UX improved as a side effect.
 
-- **Lakebase OAuth from a deployed app.** The Databricks SDK shipped with Apps didn't expose `w.database.generate_database_credential`. Built a REST fallback that probes four known endpoint paths. The deployed app's service principal also couldn't see the Lakebase instance from the API — the same call worked from the user's identity inside the workspace, but failed from the app. The pragmatic demo fix: a sidebar token-paste field with a $\sim 1$ h TTL refresh workflow.
+- **Lakebase OAuth from a deployed app.** The Databricks SDK shipped with Apps didn't expose `w.database.generate_database_credential`. Built a REST fallback that probes four known endpoint paths. The deployed app's service principal also couldn't see the Lakebase instance from the API — the same call worked from the user's identity inside the workspace, but failed from the app. The pragmatic demo fix: a sidebar token-paste field with a ~1 hour TTL refresh workflow.
 
 - **False positives in the rules classifier.** "Aravind Eye Hospital" got verified as NICU because their data mentioned "neonatal eye care" — the bare `neonatology` pattern fired. Required multi-source corroboration for verified status and added NICU vs ICU disambiguation when both fire on the same element.
 
@@ -90,7 +110,7 @@ The three remaining errors are all in the *safe* direction (under-claiming, neve
 ## Accomplishments that we're proud of
 
 - **A live, deployed Databricks App on Free Edition** — Bronze / Silver / Gold Delta tables, Lakebase Postgres for planner persistence, Foundation Model APIs for LLM fallback, and a polished Streamlit UI, all running end-to-end without external paid services.
-- **$P = R = 1.0$ on contradictions across our hand-labeled eval set.** A planner using Trust-First Triage Desk will never be told a denied or under-construction service exists, and will never miss one when the source text states it. We optimized for this metric on purpose.
+- **Precision = Recall = 1.00 on contradictions** across our hand-labeled eval set. A planner using Trust-First Triage Desk will never be told a denied or under-construction service exists, and will never miss one when the source text states it. We optimized for this metric on purpose.
 - **Honest provenance baked into the schema.** Every column we added — `state_source`, `state_raw`, `district_raw`, `extraction_method`, `has_valid_coords` — is a small honesty tax that pays off in trust. The shift from "we extracted a state" to "this state came from pincode lookup, not the source field" is invisible until a judge asks how, and then it's everything.
 - **Status thresholds that move thousands of facilities from "verified" to "unclear" — and that's the right answer.** The pipeline reports uncertainty honestly. The shift IS the "Evidence & Uncertainty" judging signal.
 - **Reproducible evaluation.** `python -m eval.run_eval` runs offline, deterministic, no DB or LLM needed. Twenty hand-labeled scenarios drawn from real Marketplace rows, stratified across verified / contradicted / unclear / low-confidence / edge cases.
@@ -102,9 +122,9 @@ The three remaining errors are all in the *safe* direction (under-claiming, neve
 
 - **Honest uncertainty is the demo's superpower.** Tightening status thresholds moved 3,000+ facilities from "verified" to "unclear." That's the right answer. The shift IS the "Evidence & Uncertainty" judging signal.
 
-- **Contradiction precision/recall is the safety-critical metric.** A planner can tolerate "unclear" and verify by hand. A planner cannot tolerate a confident "verified" on a hospital that actually refers ICU cases elsewhere. We optimized for $P = R = 1$ on contradictions and accepted lower verified-recall as a deliberate trade.
+- **Contradiction precision/recall is the safety-critical metric.** A planner can tolerate "unclear" and verify by hand. A planner cannot tolerate a confident "verified" on a hospital that actually refers ICU cases elsewhere. We optimized for P = R = 1 on contradictions and accepted lower verified-recall as a deliberate trade.
 
-- **Provenance is a feature.** Every column we added that tracks *how* a value was derived earned trust from judges and planners both.
+- **Provenance is a feature.** Every column we added that tracks how a value was derived earned trust from judges and planners both.
 
 - **Databricks Free Edition is real production infrastructure.** Unity Catalog medallion, Foundation Model APIs, Lakebase Postgres, Databricks Apps — every primitive shipped without external keys or paid tiers.
 
@@ -136,6 +156,6 @@ The three remaining errors are all in the *safe* direction (under-claiming, neve
 
 ---
 
-**Built with:** `Databricks Free Edition` · `Unity Catalog` · `Delta Lake` · `Databricks SQL Warehouse` · `Foundation Model API (Llama 3.3 70B Instruct)` · `Lakebase Postgres` · `pgvector` · `Databricks Apps` · `Streamlit` · `PySpark` · `Pandas` · `SQLAlchemy` · `psycopg` · `Python 3.11`
+**Built with:** Databricks Free Edition · Unity Catalog · Delta Lake · Databricks SQL Warehouse · Foundation Model API (Llama 3.3 70B Instruct) · Lakebase Postgres · pgvector · Databricks Apps · Streamlit · PySpark · Pandas · SQLAlchemy · psycopg · Python 3.11
 
 **Team:** Perin Shah (Data Engineer) · Chialing Wei (Data Scientist)
