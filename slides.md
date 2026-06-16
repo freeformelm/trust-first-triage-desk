@@ -60,6 +60,22 @@ A **Databricks App for a non-technical planner**:
 
 ---
 
+# Data foundation — messy source → trustworthy silver
+
+**Bronze → Silver** medallion, idempotent and re-runnable (`notebooks/02_build_silver.py`):
+
+- **Parse** the semi-structured JSON-array strings (`capability`, `equipment`, `procedure`, `specialties`) → `ARRAY<STRING>` with `FROM_JSON`; `TRY_CAST` numerics.
+- **Geo-validate** every lat/lng against an India bounding box (6–37° N, 68–98° E) → `has_valid_coords`. Caught a "Kerala" hospital geocoded to the **North Atlantic Ocean**.
+- **Resolve state honestly** — `address_stateOrRegion` sometimes holds a *district*. Pincode lookup overrides it; `state_source ∈ {pincode, source, unresolved}` records provenance.
+- **Dedup India Post** — 165,627 post offices → **19,586 pincodes** (Head Office > Post Office > Branch Office).
+- **NFHS-5 cleaning** — `*` → NULL (suppressed), `(29.5)` → low-sample flag.
+
+<span class="small">Provenance columns (`state_source`, `has_valid_coords`) make every cleaned value auditable — the honesty tax that earns trust.</span>
+
+<!-- DE-owned silver layer. This is the Technical Execution foundation: nothing downstream is trustworthy without it. -->
+
+---
+
 # How it works — claim → evidence → trust
 
 ```
@@ -132,7 +148,7 @@ Filters on *stated evidence* — absence is never treated as denial.
 - **Databricks Apps + Streamlit** — live URL within 2 hours; push → sync → deploy
 - **Provenance baked into the schema:** `state_source`, `extraction_method`, `has_valid_coords` — *how* each value was derived
 
-<span class="small">India bounding-box geo-validation caught a "Kerala" hospital geocoded to the North Atlantic. Pincode lookup fixes district-in-state-column errors (165,627 post offices → 19,586 pincodes).</span>
+<span class="small">All on Free Edition — no external keys or paid tiers. See the "Data foundation" slide for the silver-layer cleaning that makes every score auditable.</span>
 
 ---
 
