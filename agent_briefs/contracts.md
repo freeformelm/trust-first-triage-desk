@@ -92,12 +92,16 @@ Raw copy of source `facilities`. No transforms. Owner: DE.
 | capacity | INT | NULLable |
 | year_established | INT | NULLable |
 | number_doctors | INT | NULLable |
-| state | STRING | INITCAP normalized |
+| **state** | STRING | **Canonical (resolved). Pincode lookup > known-state list > NULL.** Use this for joins/filters. |
+| **state_raw** | STRING | **Original `address_stateOrRegion`** (sometimes a district name in source). Kept for audit. |
+| **district** | STRING | **From pincode lookup** (canonical) |
+| **district_raw** | STRING | Same as `district` for now (placeholder for future spatial-join result) |
+| **state_source** | STRING | **enum: `pincode` \| `source` \| `unresolved`** — provenance of `state` resolution |
 | city | STRING | INITCAP normalized |
 | pincode | STRING | 6-digit |
 | address_line1/2/3, address_country, address_country_code | STRING | – |
 | latitude, longitude | DOUBLE | – |
-| has_valid_coords | BOOLEAN | TRUE iff within India bounding box |
+| has_valid_coords | BOOLEAN | TRUE iff within India bounding box (lat 6-37, lng 68-98) |
 | recency_of_page_update | STRING | yyyy-mm-dd |
 | social_media_presence_count | INT | – |
 | has_affiliated_staff | BOOLEAN | – |
@@ -105,6 +109,8 @@ Raw copy of source `facilities`. No transforms. Owner: DE.
 | facts_count | INT | – |
 | official_phone, email, official_website | STRING | – |
 | source_content_id, cluster_id | STRING | provenance |
+
+**Build order:** `silver_pincode` MUST be built before `silver_facility` (the latter joins on pincode). `run_all_silver` enforces this.
 
 ### `silver_claim`
 Owner: DS. (Schema unchanged from initial contract — see prior version.)

@@ -48,6 +48,9 @@ Pre-pin in browser tabs so you don't fumble live:
 - "Women's literacy in Jhabua: 38.6% — lowest in India. NFHS-5 from the Government of India."
 - "Pair Trust Desk's verified facility coverage with NFHS-5 burden to see real planning need."
 
+**Optional Beat 5 — Honest data quality story (20s)**
+- Mention: "The source's `address_stateOrRegion` column sometimes holds a district name, not a state. We resolved it via pincode lookup — every resolved row has a `state_source` provenance. Honest data fix with audit trail."
+
 ### Tech credit + close — 40s
 - "Built end-to-end on Databricks Free Edition: Unity Catalog medallion, Foundation Model APIs for the LLM fallback layer, Lakebase Postgres for planner persistence, Databricks Apps for the UI."
 - "Three tiers of extraction: parse JSON-array claims → regex rules across 12 capability classes → LLM fallback for free-text only when rules can't fire."

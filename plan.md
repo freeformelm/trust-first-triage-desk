@@ -165,6 +165,8 @@
 - 2026-06-15: Status thresholds tightened — `verified` requires ≥2 corroborating sources; `contradicted` triggers on referral-out language (broader pattern: before+after match)
 - 2026-06-15: Chialing extended taxonomy from 6 to 12 capabilities (added surgery, cardiology, dialysis, radiology, pediatrics, ophthalmology) + Tier-3 LLM fallback wired
 - 2026-06-15: App live at https://trust-first-triage-desk-108684035875991.aws.databricksapps.com
+- 2026-06-16: UI overhaul — Databricks brand palette, hero band, status chips, trust bars, evidence cards, click-through Inspect → @st.dialog modal, demo shortcuts in sidebar, light-theme forced, sidebar Lakebase-token override (no redeploy on 1h expiry)
+- 2026-06-16: Data quality fix — silver_facility now resolves `state` via pincode lookup (raw `address_stateOrRegion` sometimes holds district name); adds `state_raw`, `district_raw`, `district`, `state_source` (`pincode`/`source`/`unresolved`) for audit trail
 
 ## Risks
 - Free Edition compute / LLM quota — batch + cache aggressively

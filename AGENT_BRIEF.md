@@ -49,5 +49,10 @@
 5. **Free Edition mindset:** single-node Spark OK, batch + cache LLM calls, no expensive operations on hot paths.
 6. **Cite or die:** every output the user sees that summarizes a claim MUST link back to the source snippet/field. If you don't have the citation, don't show the output.
 
+## Run Order (since `silver_facility` now depends on `silver_pincode`)
+1. `notebooks/02_build_silver.py` builds `silver_pincode` + `silver_district_health` + `silver_facility` (in that order) — `run_all_silver` enforces.
+2. `notebooks/03_build_claims_and_trust.py` builds `silver_claim` + `silver_evidence` + `gold_facility_trust`.
+3. Force module reload at top of each notebook (`del sys.modules['src.*']`) so edits to classifier take effect.
+
 ## Source of Truth for Decisions
 `plan.md` "Decisions Log" section. Append; never rewrite history.

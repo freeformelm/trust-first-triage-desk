@@ -94,3 +94,32 @@ Spark `ARRAY<STRING>` columns become numpy arrays after `.toPandas()`. `value or
 `ValueError: truth value of array is ambiguous`. Hit in `trust_compute.py` (fixed via `_as_list`) and in
 `app/app.py` `source_urls` rendering (fixed with explicit None check). Pattern: never use `or` for fallback
 on array columns — always `if v is None: v = []`.
+
+## Comprehensive Data Issues Catalog
+
+### ✓ Resolved
+| Issue | Fix |
+|-------|-----|
+| State col sometimes holds district name (e.g. Kerala Sanjivani has `state=Alappuzha`) | Pincode lookup → `silver_facility.state` canonical; `state_raw` preserved for audit; `state_source` enum tracks provenance |
+| Bad geocoding (6 facilities, lat/lng in Atlantic etc.) | India bounding box filter (`lat 6-37, lng 68-98`) → `has_valid_coords` flag |
+| JSON arrays stored as strings | `FROM_JSON(col, 'array<string>')` in silver |
+| Numeric fields stored as strings | `TRY_CAST(... AS INT)` |
+| PIN dir grain = post office, not pincode | `silver_pincode` deduped with HO > PO > BO priority |
+| `NA` lat/lng strings in PIN dir | `TRY_CAST(NULLIF(..., 'NA') AS DOUBLE)` |
+| Hero text invisible in some browsers | Forced white via `!important` on hero h1 |
+| Streamlit auto-dark-mode clashing with cream palette | `.streamlit/config.toml` with `base = "light"` |
+
+### ⚠ Open — could fix
+- **Duplicates within JSON arrays.** `specialties` often has same code repeated (e.g. `["internalMedicine"]` ×12). Dedupe at silver level.
+- **Specialty taxonomy drift.** Source vocab mixes granularities: `spineNeurosurgery`, `shoulderAndElbowOrthopedicSurgery`, `breastImaging`. Classifier maps a subset; rest goes to "other".
+- **NFHS-5 indicator strings** typed STRING when they contain `*` (suppressed) or `(29.5)` (low-sample). Kept raw — downstream caller must TRY_CAST. App's district view shows N/A silently.
+- **False positives** in classifier — e.g. `Aravind Eye Hospital → NICU` because their data has "neonatal eye care" or similar. Tighten with negative-context regex (reject `neonatal*` near `eye/ophthalm`).
+- **Description-thin facilities.** Short prose like "Healthcare facility in Mumbai." → no evidence to corroborate capability array. Trust score still ≥0.75 because capability + specialty count as supports. Add a "thin evidence" warning.
+
+### ⚠ Open — surface honestly, don't try to fix
+- **Year established sparse 48%** — render `—` when missing.
+- **Capacity sparse 25%** — most facilities don't disclose.
+- **`source_urls` quality varies** — Facebook / JustDial pages mixed with hospital's own site / gov.in. Could rank by domain trust.
+- **NFHS-5 field period 2019-21** — 5 years old at demo. NFHS-6 exists but mixing breaks definitions. Disclose date in panel.
+- **Some India-bbox-valid coords may still be wrong** (e.g. city center placeholder, not facility address). Hard to detect without ground-truth comparison.
+- **Single-source verified** — capability + specialty count as 2 sources; rule fires "verified" even if description has no mention. Could add `description_supported` boolean for stricter UI filter.
