@@ -179,6 +179,65 @@ CAPABILITIES_FOR_TRIAGE = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Data quality audit queries (Data Quality tab)
+# ---------------------------------------------------------------------------
+
+
+def dq_facility_overview() -> pd.DataFrame:
+    return query_delta(
+        f"""
+        SELECT
+          COUNT(*)                                                AS total,
+          COUNT_IF(has_valid_coords)                              AS valid_coords,
+          COUNT_IF(NOT has_valid_coords AND latitude IS NOT NULL) AS bad_coords_dropped,
+          COUNT_IF(SIZE(capabilities)  > 0)                       AS with_capability_array,
+          COUNT_IF(SIZE(specialties)   > 0)                       AS with_specialties,
+          COUNT_IF(SIZE(equipment)     > 0)                       AS with_equipment_array,
+          COUNT_IF(SIZE(source_urls)   > 0)                       AS with_citations,
+          COUNT_IF(year_established IS NOT NULL)                  AS with_year_established,
+          COUNT_IF(capacity IS NOT NULL)                          AS with_capacity
+        FROM {CFG.fq(CFG.silver_facility)}
+        """
+    )
+
+
+def dq_state_source_pivot() -> pd.DataFrame:
+    return query_delta(
+        f"""
+        SELECT state_source, COUNT(*) AS facilities
+        FROM {CFG.fq(CFG.silver_facility)}
+        GROUP BY state_source
+        ORDER BY facilities DESC
+        """
+    )
+
+
+def dq_status_by_capability() -> pd.DataFrame:
+    return query_delta(
+        f"""
+        SELECT capability, status, COUNT(*) AS facilities, ROUND(AVG(trust_score), 3) AS avg_trust
+        FROM {CFG.fq(CFG.gold_facility_trust)}
+        GROUP BY capability, status
+        ORDER BY capability, status
+        """
+    )
+
+
+def dq_state_correction_examples(limit: int = 10) -> pd.DataFrame:
+    return query_delta(
+        f"""
+        SELECT name, state_raw, state AS state_resolved, district, pincode
+        FROM {CFG.fq(CFG.silver_facility)}
+        WHERE state_source = 'pincode'
+          AND state_raw IS NOT NULL
+          AND state_raw <> state
+        LIMIT :limit
+        """,
+        {"limit": limit},
+    )
+
+
 def triage_facilities(
     capability: str,
     state: str | None = None,
