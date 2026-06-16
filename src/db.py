@@ -215,7 +215,11 @@ def triage_facilities(
           t.status,
           f.official_phone,
           f.official_website,
-          f.source_urls
+          f.source_urls,
+          f.capabilities,
+          f.procedures,
+          f.equipment,
+          f.description
         FROM {CFG.fq(CFG.gold_facility_trust)} t
         JOIN {CFG.fq(CFG.silver_facility)}    f USING (facility_id)
         WHERE t.capability = :capability

@@ -13,7 +13,12 @@ import streamlit as st
 
 from src import db
 from src.db import CAPABILITIES_FOR_TRIAGE
-from src.indicators import extract_facility_indicators
+from src.indicators import (
+    CAVEAT_KEYS,
+    FILTERABLE_INDICATORS,
+    extract_facility_indicators,
+    indicator_status_map,
+)
 
 # ---------------------------------------------------------------------------
 # Page config + brand styling
@@ -158,6 +163,16 @@ with st.sidebar:
     capability = st.selectbox("Capability", CAPABILITIES_FOR_TRIAGE, index=0)
     state = st.text_input("State or city (prefix OK)", value="", placeholder="e.g. Kerala, Mumbai")
     min_trust = st.slider("Min trust score", 0.0, 1.0, 0.0, 0.05)
+
+    st.markdown("**Operations & access**")
+    _ind_label_to_key = {label: key for key, label in FILTERABLE_INDICATORS}
+    require_labels = st.multiselect(
+        "Must offer",
+        options=list(_ind_label_to_key.keys()),
+        help="Keep only facilities whose own text says they offer these (each is cited in Facility Detail).",
+    )
+    require_indicator_keys = [_ind_label_to_key[lbl] for lbl in require_labels]
+    hide_caveats = st.checkbox("Hide temporarily closed / under construction")
 
     st.markdown("---")
     st.markdown("### ⭐ Demo shortcuts")
@@ -411,6 +426,24 @@ with tab_triage:
     except Exception as e:
         st.error(f"Delta query failed: {e}")
         df = pd.DataFrame()
+
+    # Operations & access filter — computed live per row from the facility's text.
+    if not df.empty and (require_indicator_keys or hide_caveats):
+        def _passes_indicator_filter(r) -> bool:
+            status = indicator_status_map(
+                safe_list(r.get("capabilities")),
+                safe_list(r.get("procedures")),
+                safe_list(r.get("equipment")),
+                r.get("description"),
+            )
+            if hide_caveats and any(status.get(k) == "attention" for k in CAVEAT_KEYS):
+                return False
+            return all(status.get(k) == "available" for k in require_indicator_keys)
+
+        n_before = len(df)
+        df = df[df.apply(_passes_indicator_filter, axis=1)].reset_index(drop=True)
+        active = ", ".join(require_labels) + (" · excl. closed/under-construction" if hide_caveats else "")
+        st.caption(f"Operations & access filter ({active}): {len(df)} of {n_before} match.")
 
     if df.empty:
         st.info("No facilities match. Loosen filters or try a different capability.")

@@ -155,6 +155,27 @@ def extract_facility_indicators(
     return sorted(found.values(), key=lambda ind: order[ind.key])
 
 
+# Filterable access/operations indicators for the sidebar (non-caveat), and the
+# caveat keys used by the "hide closed / under construction" toggle.
+FILTERABLE_INDICATORS: tuple[tuple[str, str], ...] = tuple(
+    (r.key, f"{r.icon} {r.label}") for r in INDICATOR_RULES if not r.is_caveat
+)
+CAVEAT_KEYS: tuple[str, ...] = tuple(r.key for r in INDICATOR_RULES if r.is_caveat)
+
+
+def indicator_status_map(
+    capabilities: list[str] | None,
+    procedures: list[str] | None,
+    equipment: list[str] | None,
+    description: str | None,
+) -> dict[str, str]:
+    """key -> status ('available' | 'unavailable' | 'attention') for fast filtering."""
+    return {
+        ind.key: ind.status
+        for ind in extract_facility_indicators(capabilities, procedures, equipment, description)
+    }
+
+
 if __name__ == "__main__":
     demo = extract_facility_indicators(
         capabilities=[
