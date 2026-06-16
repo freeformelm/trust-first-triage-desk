@@ -165,6 +165,35 @@ with st.sidebar:
             st.rerun()
 
     st.markdown("---")
+    with st.expander("🔑 Lakebase token (1h TTL)", expanded=False):
+        st.caption(
+            "Paste a fresh OAuth token here to use Lakebase persistence without "
+            "redeploying. Token TTL is ~1 hour."
+        )
+        token_input = st.text_input(
+            "OAuth token",
+            value="",
+            type="password",
+            key="lakebase_token_input",
+            label_visibility="collapsed",
+            placeholder="eyJraWQ...",
+        )
+        if token_input.strip():
+            os.environ["LAKEBASE_PASSWORD"] = token_input.strip()
+            st.success("Token applied for this session.")
+        st.caption("Generate fresh in a workspace notebook:")
+        st.code(
+            'from databricks.sdk import WorkspaceClient\n'
+            'w = WorkspaceClient()\n'
+            'cred = w.database.generate_database_credential(\n'
+            '    request_id="trust-desk-app",\n'
+            '    instance_names=["ep-solitary-shape-d8czihec"],\n'
+            ')\n'
+            'print(cred.token)',
+            language="python",
+        )
+
+    st.markdown("---")
     st.caption(
         "**Why this matters.** The dataset's `capability`, `equipment`, "
         "and `procedure` fields are CLAIMS, not verified facts. "
