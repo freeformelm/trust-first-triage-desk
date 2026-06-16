@@ -74,6 +74,28 @@ display(spark.sql(f"""
 
 # COMMAND ----------
 
+# State resolution audit — pincode-based correction vs source value
+display(spark.sql(f"""
+    SELECT state_source, COUNT(*) AS facilities
+    FROM {CFG.fq(CFG.silver_facility)}
+    GROUP BY state_source
+    ORDER BY facilities DESC
+"""))
+
+# COMMAND ----------
+
+# Show rows where raw state was actually a district (pincode lookup overrode it)
+display(spark.sql(f"""
+    SELECT name, state_raw, state AS state_resolved, district, pincode
+    FROM {CFG.fq(CFG.silver_facility)}
+    WHERE state_source = 'pincode'
+      AND state_raw IS NOT NULL
+      AND state_raw <> state
+    LIMIT 20
+"""))
+
+# COMMAND ----------
+
 # Spot-check the bad-geocoding finding (Sanjivani Hospital, Kerala — coords were Atlantic)
 display(spark.sql(f"""
     SELECT facility_id, name, state, latitude, longitude, has_valid_coords

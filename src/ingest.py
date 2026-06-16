@@ -66,17 +66,24 @@ def build_silver_facility(spark: "SparkSession") -> "DataFrame":
 
     Transforms:
       - Rename source → silver columns (snake_case)
-      - Parse JSON-array string fields (specialties, procedure, equipment, capability, source_urls)
-      - Cast numeric strings (capacity, year_established, number_doctors)
+      - Parse JSON-array string fields
+      - Cast numeric strings
       - Normalize state + city (INITCAP, trim, collapse whitespace)
       - Validate lat/lng against India bounding box → `has_valid_coords`
-      - Surface trust-signal columns from the FDR (recency, presence flags)
+      - Surface trust-signal columns from FDR
+      - **Resolve state + district via pincode lookup** when raw `address_stateOrRegion`
+        actually contains a district name (real source-data quality issue confirmed in EDA).
+        Keeps `state_raw` + `district_raw` for audit; adds `state`, `district`, `state_source`.
+
+    Requires `silver_pincode` to exist first (see `run_all_silver` orchestration).
     """
     df = spark.read.table(CFG.fq(CFG.bronze_facility))
     df.createOrReplaceTempView("_bronze_facility")
 
-    silver = spark.sql(
+    # Build interim view with raw fields
+    spark.sql(
         f"""
+        CREATE OR REPLACE TEMP VIEW _facility_interim AS
         SELECT
           unique_id                                                      AS facility_id,
           TRIM(name)                                                     AS name,
@@ -84,52 +91,101 @@ def build_silver_facility(spark: "SparkSession") -> "DataFrame":
           LOWER(NULLIF(TRIM(facilityTypeId), ''))                        AS facility_type,
           LOWER(NULLIF(TRIM(operatorTypeId), ''))                        AS operator_type,
           description,
-
-          -- Claim fields parsed from JSON arrays
           FROM_JSON(specialties, 'array<string>')                        AS specialties,
           FROM_JSON(procedure,   'array<string>')                        AS procedures,
           FROM_JSON(equipment,   'array<string>')                        AS equipment,
           FROM_JSON(capability,  'array<string>')                        AS capabilities,
-
-          -- Citation source
           FROM_JSON(source_urls, 'array<string>')                        AS source_urls,
-
-          -- Numeric-ish fields stored as string
           TRY_CAST(capacity        AS INT)                               AS capacity,
           TRY_CAST(yearEstablished AS INT)                               AS year_established,
           TRY_CAST(numberDoctors   AS INT)                               AS number_doctors,
-
-          -- Address normalization
-          INITCAP(TRIM(REGEXP_REPLACE(address_stateOrRegion, '\\\\s+', ' '))) AS state,
+          INITCAP(TRIM(REGEXP_REPLACE(address_stateOrRegion, '\\\\s+', ' '))) AS state_raw,
           INITCAP(TRIM(REGEXP_REPLACE(address_city, '\\\\s+', ' ')))          AS city,
           NULLIF(TRIM(address_zipOrPostcode), '')                        AS pincode,
           address_line1, address_line2, address_line3,
           address_country, address_countryCode AS address_country_code,
-
-          -- Geography with bounding-box validation
           latitude,
           longitude,
           (latitude  BETWEEN {INDIA_LAT_MIN} AND {INDIA_LAT_MAX}
            AND longitude BETWEEN {INDIA_LNG_MIN} AND {INDIA_LNG_MAX})    AS has_valid_coords,
-
-          -- FDR trust signals (useful priors for Trust Desk)
           recency_of_page_update,
           TRY_CAST(distinct_social_media_presence_count AS INT)          AS social_media_presence_count,
           (LOWER(affiliated_staff_presence) = 'true')                    AS has_affiliated_staff,
           (LOWER(custom_logo_presence) = 'true')                         AS has_custom_logo,
           TRY_CAST(number_of_facts_about_the_organization AS INT)        AS facts_count,
-
-          -- Contact (for the planner view)
           officialPhone                                                  AS official_phone,
           email,
           officialWebsite                                                AS official_website,
-
-          -- Provenance hash for joining back to bronze
           source_content_id,
           cluster_id
         FROM _bronze_facility
         """
     )
+
+    # Pincode lookup table (already deduped, one row per pincode)
+    pincode_tbl = CFG.fq(CFG.silver_pincode)
+
+    # Known Indian states + UTs (canonical) — used as backup validator
+    indian_states_sql = ", ".join(
+        f"'{s}'" for s in (
+            "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar",
+            "Chhattisgarh", "Goa", "Gujarat", "Haryana", "Himachal Pradesh",
+            "Jharkhand", "Karnataka", "Kerala", "Madhya Pradesh", "Maharashtra",
+            "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Odisha",
+            "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana",
+            "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal",
+            "Andaman And Nicobar Islands", "Chandigarh",
+            "Dadra And Nagar Haveli And Daman And Diu", "Delhi",
+            "Jammu And Kashmir", "Ladakh", "Lakshadweep", "Puducherry",
+        )
+    )
+
+    silver = spark.sql(
+        f"""
+        WITH joined AS (
+          SELECT
+            f.*,
+            p.statename AS pincode_state,
+            p.district  AS pincode_district
+          FROM _facility_interim f
+          LEFT JOIN {pincode_tbl} p
+            ON f.pincode = p.pincode
+        )
+        SELECT
+          facility_id, name, organization_type, facility_type, operator_type, description,
+          specialties, procedures, equipment, capabilities, source_urls,
+          capacity, year_established, number_doctors,
+
+          -- Raw values preserved for audit
+          state_raw,
+          pincode_district AS district_raw,
+
+          -- Resolved canonical state: pincode > state_raw (if in known list) > NULL
+          COALESCE(
+            pincode_state,
+            CASE WHEN state_raw IN ({indian_states_sql}) THEN state_raw ELSE NULL END
+          ) AS state,
+          pincode_district AS district,
+          CASE
+            WHEN pincode_state IS NOT NULL THEN 'pincode'
+            WHEN state_raw IN ({indian_states_sql}) THEN 'source'
+            ELSE 'unresolved'
+          END AS state_source,
+
+          city,
+          pincode,
+          address_line1, address_line2, address_line3,
+          address_country, address_country_code,
+          latitude, longitude, has_valid_coords,
+          recency_of_page_update,
+          social_media_presence_count,
+          has_affiliated_staff, has_custom_logo, facts_count,
+          official_phone, email, official_website,
+          source_content_id, cluster_id
+        FROM joined
+        """
+    )
+
     silver.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(
         CFG.fq(CFG.silver_facility)
     )
@@ -241,6 +297,7 @@ def run_all_bronze(spark: "SparkSession") -> None:
 
 
 def run_all_silver(spark: "SparkSession") -> None:
-    build_silver_facility(spark)
+    # Pincode FIRST — silver_facility joins against it for state resolution
     build_silver_pincode(spark)
     build_silver_district_health(spark)
+    build_silver_facility(spark)
